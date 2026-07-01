@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, Menu, X } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import Login from './pages/Login';
+import ImportCollaborateurs from './pages/ImportCollaborateurs';
 import { ROLE_LABELS, canAccessAdmin } from './types';
 
 function FullScreenMessage({ title, body, onSignOut }: { title: string; body: string; onSignOut: () => void }) {
@@ -22,6 +23,7 @@ function AppShell() {
   const { profile, signOut } = useAuth();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'planning' | 'admin' | 'reports'>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   if (!profile) return null;
 
@@ -92,6 +94,8 @@ function AppShell() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+
+      {showImport && <ImportCollaborateurs onClose={() => setShowImport(false)} />}
 
       {/* Sidebar desktop */}
       <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:w-72 lg:flex lg:flex-col bg-white border-r border-gray-200 shadow-xl z-50">
@@ -171,19 +175,24 @@ function AppShell() {
           )}
 
           {activeTab === 'admin' && isAdmin && (
-            <div className="bg-white rounded-2xl p-6">
-              <h3 className="text-xl font-semibold mb-6">Administration</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <button className="p-6 border-2 border-dashed border-gray-300 rounded-2xl hover:border-blue-400 transition text-left">
-                  <Users className="w-8 h-8 mb-3 text-blue-600" />
-                  <div className="font-semibold text-sm">Importer Collaborateurs</div>
-                  <div className="text-xs text-gray-500 mt-1">Via fichier Excel</div>
-                </button>
-                <button className="p-6 border-2 border-dashed border-gray-300 rounded-2xl hover:border-blue-400 transition text-left">
-                  <Settings className="w-8 h-8 mb-3 text-blue-600" />
-                  <div className="font-semibold text-sm">Gestion des Rayons</div>
-                  <div className="text-xs text-gray-500 mt-1">Départements &amp; Rayons</div>
-                </button>
+            <div className="space-y-6">
+              <div className="bg-white rounded-2xl p-6">
+                <h3 className="text-lg font-semibold mb-5">Collaborateurs</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <button
+                    onClick={() => setShowImport(true)}
+                    className="p-6 border-2 border-dashed border-gray-300 rounded-2xl hover:border-blue-400 hover:bg-blue-50 transition text-left"
+                  >
+                    <Users className="w-8 h-8 mb-3 text-blue-600" />
+                    <div className="font-semibold text-sm">Importer Collaborateurs</div>
+                    <div className="text-xs text-gray-500 mt-1">Via fichier Excel (.xlsx)</div>
+                  </button>
+                  <button className="p-6 border-2 border-dashed border-gray-300 rounded-2xl hover:border-blue-400 hover:bg-blue-50 transition text-left">
+                    <Settings className="w-8 h-8 mb-3 text-blue-600" />
+                    <div className="font-semibold text-sm">Gestion des Rayons</div>
+                    <div className="text-xs text-gray-500 mt-1">Départements &amp; Rayons</div>
+                  </button>
+                </div>
               </div>
             </div>
           )}
