@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-ssr
+*.local
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Editor
+.vscode/*
+.idea
+.DS_Store
