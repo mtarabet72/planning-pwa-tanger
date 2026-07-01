@@ -13,7 +13,8 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "@supabase/supabase-js": "^2.45.4",
-    "lucide-react": "^0.460.0"
+    "lucide-react": "^0.460.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",
