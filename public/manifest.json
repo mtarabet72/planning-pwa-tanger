@@ -1,0 +1,17 @@
+{
+  "name": "Planning Marjane Tanger",
+  "short_name": "Planning",
+  "description": "Gestion des plannings — Marjane Tanger",
+  "theme_color": "#2563eb",
+  "background_color": "#f9fafb",
+  "display": "standalone",
+  "scope": "/planning-pwa-tanger/",
+  "start_url": "/planning-pwa-tanger/",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
