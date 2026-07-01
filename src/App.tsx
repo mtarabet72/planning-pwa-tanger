@@ -3,6 +3,7 @@ import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, Menu, 
 import { useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import ImportCollaborateurs from './pages/ImportCollaborateurs';
+import Collaborateurs from './pages/Collaborateurs';
 import { ROLE_LABELS, canAccessAdmin } from './types';
 
 function FullScreenMessage({ title, body, onSignOut }: { title: string; body: string; onSignOut: () => void }) {
@@ -22,6 +23,7 @@ function FullScreenMessage({ title, body, onSignOut }: { title: string; body: st
 function AppShell() {
   const { profile, signOut } = useAuth();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'planning' | 'admin' | 'reports'>('dashboard');
+  const [adminSection, setAdminSection] = useState<'menu' | 'collaborateurs' | 'rayons'>('menu');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showImport, setShowImport] = useState(false);
 
@@ -39,6 +41,7 @@ function AppShell() {
 
   function handleNav(id: typeof activeTab) {
     setActiveTab(id);
+    setAdminSection('menu');
     setSidebarOpen(false);
   }
 
@@ -95,7 +98,9 @@ function AppShell() {
   return (
     <div className="min-h-screen bg-gray-50">
 
-      {showImport && <ImportCollaborateurs onClose={() => setShowImport(false)} />}
+      {showImport && (
+        <ImportCollaborateurs onClose={() => { setShowImport(false); }} />
+      )}
 
       {/* Sidebar desktop */}
       <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:w-72 lg:flex lg:flex-col bg-white border-r border-gray-200 shadow-xl z-50">
@@ -130,14 +135,28 @@ function AppShell() {
         </div>
 
         <div className="p-4 lg:p-8">
-          <header className="mb-6 lg:mb-10">
-            <h2 className="text-2xl lg:text-3xl font-bold text-gray-900">
-              {activeTab === 'dashboard' && 'Tableau de Bord'}
-              {activeTab === 'planning' && 'Planning'}
-              {activeTab === 'admin' && 'Administration'}
-              {activeTab === 'reports' && 'Rapports'}
-            </h2>
-            <p className="text-gray-500 mt-1 text-sm">Bienvenue, {fullName}</p>
+          <header className="mb-6 lg:mb-8">
+            <div className="flex items-center gap-2">
+              {activeTab === 'admin' && adminSection !== 'menu' && (
+                <button
+                  onClick={() => setAdminSection('menu')}
+                  className="p-2 hover:bg-gray-100 rounded-xl text-gray-500"
+                >
+                  ←
+                </button>
+              )}
+              <div>
+                <h2 className="text-2xl lg:text-3xl font-bold text-gray-900">
+                  {activeTab === 'dashboard' && 'Tableau de Bord'}
+                  {activeTab === 'planning' && 'Planning'}
+                  {activeTab === 'admin' && adminSection === 'menu' && 'Administration'}
+                  {activeTab === 'admin' && adminSection === 'collaborateurs' && 'Collaborateurs'}
+                  {activeTab === 'admin' && adminSection === 'rayons' && 'Rayons'}
+                  {activeTab === 'reports' && 'Rapports'}
+                </h2>
+                <p className="text-gray-500 mt-1 text-sm">Bienvenue, {fullName}</p>
+              </div>
+            </div>
           </header>
 
           {activeTab === 'dashboard' && (
@@ -175,26 +194,42 @@ function AppShell() {
           )}
 
           {activeTab === 'admin' && isAdmin && (
-            <div className="space-y-6">
-              <div className="bg-white rounded-2xl p-6">
-                <h3 className="text-lg font-semibold mb-5">Collaborateurs</h3>
+            <>
+              {adminSection === 'menu' && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <button
-                    onClick={() => setShowImport(true)}
-                    className="p-6 border-2 border-dashed border-gray-300 rounded-2xl hover:border-blue-400 hover:bg-blue-50 transition text-left"
+                    onClick={() => setAdminSection('collaborateurs')}
+                    className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left"
                   >
                     <Users className="w-8 h-8 mb-3 text-blue-600" />
-                    <div className="font-semibold text-sm">Importer Collaborateurs</div>
-                    <div className="text-xs text-gray-500 mt-1">Via fichier Excel (.xlsx)</div>
+                    <div className="font-semibold">Collaborateurs</div>
+                    <div className="text-xs text-gray-500 mt-1">Ajouter, modifier, supprimer</div>
                   </button>
-                  <button className="p-6 border-2 border-dashed border-gray-300 rounded-2xl hover:border-blue-400 hover:bg-blue-50 transition text-left">
-                    <Settings className="w-8 h-8 mb-3 text-blue-600" />
-                    <div className="font-semibold text-sm">Gestion des Rayons</div>
+                  <button
+                    onClick={() => setShowImport(true)}
+                    className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left"
+                  >
+                    <FileText className="w-8 h-8 mb-3 text-emerald-600" />
+                    <div className="font-semibold">Import Excel</div>
+                    <div className="text-xs text-gray-500 mt-1">Importer depuis un fichier .xlsx</div>
+                  </button>
+                  <button
+                    onClick={() => setAdminSection('rayons')}
+                    className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left"
+                  >
+                    <Settings className="w-8 h-8 mb-3 text-amber-600" />
+                    <div className="font-semibold">Rayons</div>
                     <div className="text-xs text-gray-500 mt-1">Départements &amp; Rayons</div>
                   </button>
                 </div>
-              </div>
-            </div>
+              )}
+              {adminSection === 'collaborateurs' && <Collaborateurs />}
+              {adminSection === 'rayons' && (
+                <div className="bg-white rounded-2xl p-6 text-center text-gray-400 text-sm py-16">
+                  Gestion des rayons à venir.
+                </div>
+              )}
+            </>
           )}
 
           {activeTab === 'reports' && (
