@@ -1,27 +1,16 @@
 import { useState } from 'react';
-import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2 } from 'lucide-react';
+import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, Menu, X } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import { ROLE_LABELS, canAccessAdmin } from './types';
 
-function FullScreenMessage({
-  title,
-  body,
-  onSignOut,
-}: {
-  title: string;
-  body: string;
-  onSignOut: () => void;
-}) {
+function FullScreenMessage({ title, body, onSignOut }: { title: string; body: string; onSignOut: () => void }) {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
       <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8 max-w-md text-center">
         <h2 className="text-lg font-semibold text-gray-900 mb-2">{title}</h2>
         <p className="text-sm text-gray-500 mb-6">{body}</p>
-        <button
-          onClick={onSignOut}
-          className="text-sm font-medium text-red-600 hover:bg-red-50 px-4 py-2 rounded-xl transition"
-        >
+        <button onClick={onSignOut} className="text-sm font-medium text-red-600 hover:bg-red-50 px-4 py-2 rounded-xl transition">
           Déconnexion
         </button>
       </div>
@@ -32,6 +21,7 @@ function FullScreenMessage({
 function AppShell() {
   const { profile, signOut } = useAuth();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'planning' | 'admin' | 'reports'>('dashboard');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   if (!profile) return null;
 
@@ -45,133 +35,166 @@ function AppShell() {
     { id: 'reports', label: 'Rapports', icon: FileText },
   ] as const;
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="fixed inset-y-0 left-0 w-72 bg-white border-r border-gray-200 shadow-xl z-50">
-        <div className="p-6">
-          <div className="flex items-center gap-3 mb-10">
-            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-bold text-xl">
-              P
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Planning</h1>
-              <p className="text-sm text-gray-500">Marjane Tanger</p>
-            </div>
-          </div>
+  function handleNav(id: typeof activeTab) {
+    setActiveTab(id);
+    setSidebarOpen(false);
+  }
 
-          <nav className="space-y-1">
-            {menuItems.map((item) => {
-              if ('adminOnly' in item && item.adminOnly && !isAdmin) return null;
-              const Icon = item.icon;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveTab(item.id)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all ${
-                    activeTab === item.id
-                      ? 'bg-blue-50 text-blue-700 font-medium'
-                      : 'hover:bg-gray-100 text-gray-700'
-                  }`}
-                >
-                  <Icon className="w-5 h-5" />
-                  {item.label}
-                </button>
-              );
-            })}
-          </nav>
+  const Sidebar = () => (
+    <div className="flex flex-col h-full">
+      <div className="p-6 flex-1">
+        <div className="flex items-center gap-3 mb-10">
+          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-bold text-xl">P</div>
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">Planning</h1>
+            <p className="text-xs text-gray-500">Marjane Tanger</p>
+          </div>
         </div>
-
-        <div className="absolute bottom-6 left-6 right-6">
-          <div className="bg-gray-50 p-4 rounded-2xl">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600">
-                👋
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm truncate">{fullName || 'Utilisateur'}</p>
-                <p className="text-xs text-gray-500">{ROLE_LABELS[profile.role]}</p>
-              </div>
+        <nav className="space-y-1">
+          {menuItems.map((item) => {
+            if ('adminOnly' in item && item.adminOnly && !isAdmin) return null;
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.id}
+                onClick={() => handleNav(item.id)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all ${
+                  activeTab === item.id ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-gray-100 text-gray-700'
+                }`}
+              >
+                <Icon className="w-5 h-5 shrink-0" />
+                {item.label}
+              </button>
+            );
+          })}
+        </nav>
+      </div>
+      <div className="p-6">
+        <div className="bg-gray-50 p-4 rounded-2xl">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600 shrink-0">👋</div>
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-sm truncate">{fullName || 'Utilisateur'}</p>
+              <p className="text-xs text-gray-500">{ROLE_LABELS[profile.role]}</p>
             </div>
-            <button
-              onClick={() => void signOut()}
-              className="mt-4 w-full flex items-center justify-center gap-2 text-red-600 hover:bg-red-50 py-2 rounded-xl text-sm font-medium"
-            >
-              <LogOut className="w-4 h-4" />
-              Déconnexion
-            </button>
           </div>
+          <button
+            onClick={() => void signOut()}
+            className="mt-4 w-full flex items-center justify-center gap-2 text-red-600 hover:bg-red-50 py-2 rounded-xl text-sm font-medium"
+          >
+            <LogOut className="w-4 h-4" />
+            Déconnexion
+          </button>
         </div>
       </div>
+    </div>
+  );
 
-      <div className="ml-72 p-8">
-        <header className="mb-10">
-          <h2 className="text-3xl font-bold text-gray-900">
-            {activeTab === 'dashboard' && 'Tableau de Bord'}
-            {activeTab === 'planning' && 'Gestion des Plannings'}
-            {activeTab === 'admin' && 'Administration'}
-            {activeTab === 'reports' && 'Rapports'}
-          </h2>
-          <p className="text-gray-600 mt-1">Bienvenue, {fullName}</p>
-        </header>
+  return (
+    <div className="min-h-screen bg-gray-50">
 
-        {activeTab === 'dashboard' && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-              <h3 className="text-lg font-semibold mb-6">Plannings Validés</h3>
-              <div className="text-6xl font-bold text-emerald-600">—</div>
-              <p className="text-sm text-gray-500 mt-2">Cette semaine</p>
-            </div>
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-              <h3 className="text-lg font-semibold mb-6">Heures Planifiées</h3>
-              <div className="text-6xl font-bold text-blue-600">—</div>
-              <p className="text-sm text-gray-500 mt-2">Ce mois</p>
-            </div>
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-              <h3 className="text-lg font-semibold mb-6">Rayons Actifs</h3>
-              <div className="text-6xl font-bold text-amber-600">—</div>
-              <p className="text-sm text-gray-500 mt-2">Sur le périmètre</p>
-            </div>
+      {/* Sidebar desktop */}
+      <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:w-72 lg:flex lg:flex-col bg-white border-r border-gray-200 shadow-xl z-50">
+        <Sidebar />
+      </div>
+
+      {/* Overlay mobile */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setSidebarOpen(false)} />
+          <div className="absolute left-0 top-0 bottom-0 w-72 bg-white shadow-2xl z-50">
+            <button onClick={() => setSidebarOpen(false)} className="absolute top-4 right-4 p-2 rounded-xl hover:bg-gray-100">
+              <X className="w-5 h-5" />
+            </button>
+            <Sidebar />
           </div>
-        )}
+        </div>
+      )}
 
-        {activeTab === 'planning' && (
-          <div className="bg-white rounded-3xl shadow-sm p-8">
-            <div className="flex justify-between mb-8">
-              <h3 className="text-2xl font-semibold">Planning Hebdomadaire</h3>
-              <button className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-medium hover:bg-blue-700 transition">
-                + Nouveau Planning
-              </button>
-            </div>
-            <div className="text-center py-20 text-gray-400">
-              Interface planning à venir.
-            </div>
-          </div>
-        )}
+      {/* Contenu principal */}
+      <div className="lg:ml-72">
 
-        {activeTab === 'admin' && isAdmin && (
-          <div className="bg-white rounded-3xl p-8">
-            <h3 className="text-2xl font-semibold mb-8">Administration</h3>
-            <div className="grid grid-cols-2 gap-6">
-              <button className="p-8 border-2 border-dashed border-gray-300 rounded-3xl hover:border-blue-400 transition text-left">
-                <Users className="w-10 h-10 mb-4 text-blue-600" />
-                <div className="font-semibold">Importer Collaborateurs</div>
-                <div className="text-sm text-gray-500">Via fichier Excel</div>
-              </button>
-              <button className="p-8 border-2 border-dashed border-gray-300 rounded-3xl hover:border-blue-400 transition text-left">
-                <Settings className="w-10 h-10 mb-4 text-blue-600" />
-                <div className="font-semibold">Gestion des Rayons</div>
-                <div className="text-sm text-gray-500">Départements &amp; Rayons</div>
-              </button>
-            </div>
+        {/* Header mobile */}
+        <div className="lg:hidden flex items-center gap-3 px-4 py-4 bg-white border-b border-gray-200 sticky top-0 z-30">
+          <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-xl hover:bg-gray-100">
+            <Menu className="w-5 h-5" />
+          </button>
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">P</div>
+            <span className="font-semibold text-gray-900">Planning</span>
           </div>
-        )}
+        </div>
 
-        {activeTab === 'reports' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white p-8 rounded-3xl">Planning Journalier</div>
-            <div className="bg-white p-8 rounded-3xl">Rapport Mensuel</div>
-          </div>
-        )}
+        <div className="p-4 lg:p-8">
+          <header className="mb-6 lg:mb-10">
+            <h2 className="text-2xl lg:text-3xl font-bold text-gray-900">
+              {activeTab === 'dashboard' && 'Tableau de Bord'}
+              {activeTab === 'planning' && 'Planning'}
+              {activeTab === 'admin' && 'Administration'}
+              {activeTab === 'reports' && 'Rapports'}
+            </h2>
+            <p className="text-gray-500 mt-1 text-sm">Bienvenue, {fullName}</p>
+          </header>
+
+          {activeTab === 'dashboard' && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <h3 className="text-sm font-medium text-gray-500 mb-3">Plannings Validés</h3>
+                <div className="text-4xl font-bold text-emerald-600">—</div>
+                <p className="text-xs text-gray-400 mt-1">Cette semaine</p>
+              </div>
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <h3 className="text-sm font-medium text-gray-500 mb-3">Heures Planifiées</h3>
+                <div className="text-4xl font-bold text-blue-600">—</div>
+                <p className="text-xs text-gray-400 mt-1">Ce mois</p>
+              </div>
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <h3 className="text-sm font-medium text-gray-500 mb-3">Rayons Actifs</h3>
+                <div className="text-4xl font-bold text-amber-600">—</div>
+                <p className="text-xs text-gray-400 mt-1">Sur le périmètre</p>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'planning' && (
+            <div className="bg-white rounded-2xl shadow-sm p-6">
+              <div className="flex flex-col sm:flex-row sm:justify-between gap-4 mb-6">
+                <h3 className="text-xl font-semibold">Planning Hebdomadaire</h3>
+                <button className="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-medium hover:bg-blue-700 transition text-sm">
+                  + Nouveau Planning
+                </button>
+              </div>
+              <div className="text-center py-16 text-gray-400 text-sm">
+                Interface planning à venir.
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'admin' && isAdmin && (
+            <div className="bg-white rounded-2xl p-6">
+              <h3 className="text-xl font-semibold mb-6">Administration</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <button className="p-6 border-2 border-dashed border-gray-300 rounded-2xl hover:border-blue-400 transition text-left">
+                  <Users className="w-8 h-8 mb-3 text-blue-600" />
+                  <div className="font-semibold text-sm">Importer Collaborateurs</div>
+                  <div className="text-xs text-gray-500 mt-1">Via fichier Excel</div>
+                </button>
+                <button className="p-6 border-2 border-dashed border-gray-300 rounded-2xl hover:border-blue-400 transition text-left">
+                  <Settings className="w-8 h-8 mb-3 text-blue-600" />
+                  <div className="font-semibold text-sm">Gestion des Rayons</div>
+                  <div className="text-xs text-gray-500 mt-1">Départements &amp; Rayons</div>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'reports' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="bg-white p-6 rounded-2xl shadow-sm">Planning Journalier</div>
+              <div className="bg-white p-6 rounded-2xl shadow-sm">Rapport Mensuel</div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
