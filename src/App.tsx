@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import ImportCollaborateurs from './pages/ImportCollaborateurs';
 import Collaborateurs from './pages/Collaborateurs';
 import Utilisateurs from './pages/Utilisateurs';
+import Planning from './pages/Planning';
 import { ROLE_LABELS, canAccessAdmin } from './types';
 
 function FullScreenMessage({ title, body, onSignOut }: { title: string; body: string; onSignOut: () => void }) {
@@ -148,10 +149,9 @@ function AppShell() {
               )}
               <div>
                 <h2 className="text-2xl lg:text-3xl font-bold text-gray-900">
-                  {activeTab === 'admin' ? adminTitle[adminSection] : (
-                    activeTab === 'dashboard' ? 'Tableau de Bord' :
-                    activeTab === 'planning' ? 'Planning' : 'Rapports'
-                  )}
+                  {activeTab === 'admin' ? adminTitle[adminSection] :
+                   activeTab === 'dashboard' ? 'Tableau de Bord' :
+                   activeTab === 'planning' ? 'Planning Hebdomadaire' : 'Rapports'}
                 </h2>
                 <p className="text-gray-500 mt-1 text-sm">Bienvenue, {fullName}</p>
               </div>
@@ -171,26 +171,14 @@ function AppShell() {
                 <p className="text-xs text-gray-400 mt-1">Ce mois</p>
               </div>
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                <h3 className="text-sm font-medium text-gray-500 mb-3">Rayons Actifs</h3>
+                <h3 className="text-sm font-medium text-gray-500 mb-3">Collaborateurs Actifs</h3>
                 <div className="text-4xl font-bold text-amber-600">—</div>
                 <p className="text-xs text-gray-400 mt-1">Sur le périmètre</p>
               </div>
             </div>
           )}
 
-          {activeTab === 'planning' && (
-            <div className="bg-white rounded-2xl shadow-sm p-6">
-              <div className="flex flex-col sm:flex-row sm:justify-between gap-4 mb-6">
-                <h3 className="text-xl font-semibold">Planning Hebdomadaire</h3>
-                <button className="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-medium hover:bg-blue-700 transition text-sm">
-                  + Nouveau Planning
-                </button>
-              </div>
-              <div className="text-center py-16 text-gray-400 text-sm">
-                Interface planning à venir.
-              </div>
-            </div>
-          )}
+          {activeTab === 'planning' && <Planning />}
 
           {activeTab === 'admin' && isAdmin && (
             <>
