@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { Users, Calendar, BarChart3, TrendingUp, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { canAccessAdmin } from '../types';
 
 interface Stats {
   totalCollaborateurs: number;
@@ -13,13 +12,7 @@ interface Stats {
   rayonsActifs: { nom: string; nb: number }[];
 }
 
-function StatCard({
-  label,
-  value,
-  sub,
-  color,
-  icon: Icon,
-}: {
+function StatCard({ label, value, sub, color, icon: Icon }: {
   label: string;
   value: number | string;
   sub?: string;
@@ -45,11 +38,7 @@ const POSTE_LABEL: Record<string, string> = {
 };
 
 const POSTE_COLOR: Record<string, string> = {
-  M:  'bg-amber-400',
-  AM: 'bg-blue-400',
-  N:  'bg-indigo-400',
-  R:  'bg-gray-300',
-  C:  'bg-emerald-400',
+  M: 'bg-amber-400', AM: 'bg-blue-400', N: 'bg-indigo-400', R: 'bg-gray-300', C: 'bg-emerald-400',
 };
 
 function getLundi(date: Date): string {
@@ -60,9 +49,15 @@ function getLundi(date: Date): string {
   return d.toISOString().split('T')[0];
 }
 
+interface RawCol {
+  id: string;
+  actif: boolean;
+  rayon_id: string | null;
+  rayons: { nom: string } | null;
+}
+
 export default function Dashboard() {
   const { profile } = useAuth();
-  const isAdmin = profile ? canAccessAdmin(profile.role) : false;
   const isChefDep = profile?.role === 'chef_departement';
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -73,25 +68,35 @@ export default function Dashboard() {
     setLoading(true);
     const semaineCourante = getLundi(new Date());
 
+    // Récupérer les IDs de rayons du département si chef de département
+    let rayonIds: string[] = [];
+    if (isChefDep && profile?.departement_id) {
+      const { data: rays } = await supabase
+        .from('rayons')
+        .select('id')
+        .eq('departement_id', profile.departement_id);
+      rayonIds = (rays ?? []).map((r: { id: string }) => r.id);
+    }
+
     // Collaborateurs
-    let colQuery = supabase.from('collaborateurs').select('id, actif, rayon_id, rayons(nom)', { count: 'exact' });
+    let colQuery = supabase.from('collaborateurs').select('id, actif, rayon_id, rayons(nom)');
     if (profile?.role === 'chef_rayon' && profile.rayon_id) {
       colQuery = colQuery.eq('rayon_id', profile.rayon_id);
-    } else if (isChefDep && profile?.departement_id) {
-      colQuery = colQuery.in('rayon_id',
-        (await supabase.from('rayons').select('id').eq('departement_id', profile.departement_id)).data?.map(r => r.id) ?? []
-      );
+    } else if (isChefDep && rayonIds.length > 0) {
+      colQuery = colQuery.in('rayon_id', rayonIds);
     }
-    const { data: cols } = await colQuery;
-    const allCols = cols ?? [];
-    const totalCollaborateurs = allCols.length;
-    const collaborateursActifs = allCols.filter((c: { actif: boolean }) => c.actif).length;
+    const { data: colsRaw } = await colQuery;
+    const cols = (colsRaw ?? []) as RawCol[];
+
+    const totalCollaborateurs = cols.length;
+    const collaborateursActifs = cols.filter(c => c.actif).length;
 
     // Rayons actifs avec nb collaborateurs
     const rayonMap: Record<string, { nom: string; nb: number }> = {};
-    for (const c of allCols as { actif: boolean; rayon_id: string; rayons: { nom: string } | null }[]) {
+    for (const c of cols) {
       if (!c.actif || !c.rayon_id) continue;
-      if (!rayonMap[c.rayon_id]) rayonMap[c.rayon_id] = { nom: c.rayons?.nom ?? '—', nb: 0 };
+      const nom = c.rayons?.nom ?? '—';
+      if (!rayonMap[c.rayon_id]) rayonMap[c.rayon_id] = { nom, nb: 0 };
       rayonMap[c.rayon_id].nb++;
     }
     const rayonsActifs = Object.values(rayonMap).sort((a, b) => b.nb - a.nb).slice(0, 5);
@@ -100,10 +105,8 @@ export default function Dashboard() {
     let planQuery = supabase.from('plannings').select('id', { count: 'exact' }).eq('semaine_debut', semaineCourante);
     if (profile?.role === 'chef_rayon' && profile.rayon_id) {
       planQuery = planQuery.eq('rayon_id', profile.rayon_id);
-    } else if (isChefDep && profile?.departement_id) {
-      planQuery = planQuery.in('rayon_id',
-        (await supabase.from('rayons').select('id').eq('departement_id', profile.departement_id)).data?.map(r => r.id) ?? []
-      );
+    } else if (isChefDep && rayonIds.length > 0) {
+      planQuery = planQuery.in('rayon_id', rayonIds);
     }
     const { count: planningsCount } = await planQuery;
 
@@ -116,14 +119,14 @@ export default function Dashboard() {
     }
     const { count: rayonsCount } = await rayonsQuery;
 
-    // Répartition postes cette semaine
+    // Répartition postes
     const { data: lignes } = await supabase
       .from('planning_lignes')
-      .select('poste, planning_id, plannings!inner(semaine_debut, rayon_id)')
+      .select('poste, plannings!inner(semaine_debut)')
       .eq('plannings.semaine_debut', semaineCourante);
 
     const repartition: Record<string, number> = { M: 0, AM: 0, N: 0, R: 0, C: 0 };
-    for (const l of lignes ?? []) {
+    for (const l of (lignes ?? []) as { poste: string }[]) {
       if (repartition[l.poste] !== undefined) repartition[l.poste]++;
     }
 
@@ -153,7 +156,6 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
 
-      {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="Collaborateurs actifs"
@@ -186,8 +188,6 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-        {/* Répartition postes */}
         <div className="bg-white rounded-2xl p-6 border border-gray-100">
           <h3 className="font-semibold text-gray-900 mb-5">Répartition des postes — semaine en cours</h3>
           {totalPostes === 0 ? (
@@ -203,10 +203,7 @@ export default function Dashboard() {
                       <span className="text-gray-500">{nb} — {pct}%</span>
                     </div>
                     <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${POSTE_COLOR[poste]} transition-all`}
-                        style={{ width: `${pct}%` }}
-                      />
+                      <div className={`h-full rounded-full ${POSTE_COLOR[poste]} transition-all`} style={{ width: `${pct}%` }} />
                     </div>
                   </div>
                 );
@@ -215,7 +212,6 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Top rayons */}
         <div className="bg-white rounded-2xl p-6 border border-gray-100">
           <h3 className="font-semibold text-gray-900 mb-5">Collaborateurs par rayon</h3>
           {stats.rayonsActifs.length === 0 ? (
@@ -224,9 +220,7 @@ export default function Dashboard() {
             <div className="space-y-3">
               {stats.rayonsActifs.map((r, i) => (
                 <div key={i} className="flex items-center gap-3">
-                  <div className="w-6 h-6 bg-blue-50 rounded-lg flex items-center justify-center text-xs font-bold text-blue-600">
-                    {i + 1}
-                  </div>
+                  <div className="w-6 h-6 bg-blue-50 rounded-lg flex items-center justify-center text-xs font-bold text-blue-600">{i + 1}</div>
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between text-xs mb-1">
                       <span className="font-medium text-gray-700 truncate">{r.nom}</span>
@@ -235,7 +229,7 @@ export default function Dashboard() {
                     <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-blue-400 rounded-full"
-                        style={{ width: `${Math.round((r.nb / stats.collaborateursActifs) * 100)}%` }}
+                        style={{ width: `${stats.collaborateursActifs > 0 ? Math.round((r.nb / stats.collaborateursActifs) * 100) : 0}%` }}
                       />
                     </div>
                   </div>
@@ -246,7 +240,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Résumé semaine */}
       <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-6 text-white">
         <div className="flex items-center gap-3 mb-2">
           <Calendar className="w-5 h-5 opacity-80" />
@@ -254,7 +247,7 @@ export default function Dashboard() {
         </div>
         <p className="text-blue-100 text-sm">
           {stats.planningsSemaine === 0
-            ? 'Aucun planning créé cette semaine. Rendez-vous dans l\'onglet Planning pour commencer.'
+            ? "Aucun planning créé cette semaine. Rendez-vous dans l'onglet Planning pour commencer."
             : `${stats.planningsSemaine} planning(s) créé(s) sur ${stats.totalRayons} rayon(s). ${
                 stats.planningsSemaine < stats.totalRayons
                   ? `${stats.totalRayons - stats.planningsSemaine} rayon(s) sans planning.`
