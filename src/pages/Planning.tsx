@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Save, Loader2, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Save, Loader2, Plus, Printer } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { canAccessAdmin } from '../types';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 type Poste = 'M' | 'AM' | 'N' | 'R' | 'C';
 
@@ -18,6 +20,14 @@ const POSTE_STYLE: Record<Poste, string> = {
 
 const POSTE_LABEL: Record<Poste, string> = {
   M: 'Matin', AM: 'Après-midi', N: 'Nuit', R: 'Repos', C: 'Congé',
+};
+
+const POSTE_COLOR: Record<Poste, [number, number, number]> = {
+  M:  [254, 243, 199],
+  AM: [219, 234, 254],
+  N:  [224, 231, 255],
+  R:  [243, 244, 246],
+  C:  [209, 250, 229],
 };
 
 const JOURS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
@@ -45,6 +55,10 @@ function formatDisplay(date: Date): string {
   return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
 }
 
+function formatDisplayLong(date: Date): string {
+  return date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+}
+
 interface Collaborateur {
   id: string;
   nom: string;
@@ -68,6 +82,7 @@ export default function Planning() {
   const [semaine, setSemaine] = useState<Date>(getLundi(new Date()));
   const [rayons, setRayons] = useState<Rayon[]>([]);
   const [rayonId, setRayonId] = useState<string>('');
+  const [rayonNom, setRayonNom] = useState<string>('');
   const [collaborateurs, setCollaborateurs] = useState<Collaborateur[]>([]);
   const [grille, setGrille] = useState<Grille>({});
   const [planningId, setPlanningId] = useState<string | null>(null);
@@ -90,7 +105,10 @@ export default function Planning() {
     const { data } = await query;
     const list = (data as Rayon[]) ?? [];
     setRayons(list);
-    if (list.length === 1) setRayonId(list[0].id);
+    if (list.length === 1) {
+      setRayonId(list[0].id);
+      setRayonNom(list[0].nom);
+    }
   }
 
   async function loadPlanning() {
@@ -158,7 +176,10 @@ export default function Planning() {
     if (!pid) {
       const { data } = await supabase
         .from('plannings')
-        .upsert({ rayon_id: rayonId, semaine_debut: debut, created_by: profile?.id }, { onConflict: 'rayon_id,semaine_debut' })
+        .upsert(
+          { rayon_id: rayonId, semaine_debut: debut, created_by: profile?.id },
+          { onConflict: 'rayon_id,semaine_debut' }
+        )
         .select('id')
         .single();
       pid = data?.id ?? null;
@@ -182,6 +203,78 @@ export default function Planning() {
     setTimeout(() => setSaved(false), 2000);
   }
 
+  function handleExportPDF() {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+    const rayon = rayons.find(r => r.id === rayonId);
+    const depNom = rayon?.departements?.nom ?? '';
+    const semaineStr = `Semaine du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}`;
+
+    // En-tête
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text('PLANNING MARJANE TANGER', 14, 18);
+
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Rayon : ${rayonNom}${depNom ? ` — Département : ${depNom}` : ''}`, 14, 26);
+    doc.text(semaineStr, 14, 32);
+
+    // En-têtes colonnes
+    const headers = [
+      ['Collaborateur', ...jours.map((j, i) => `${JOURS[i]}\n${formatDisplay(j)}`)]
+    ];
+
+    // Lignes
+    const body = collaborateurs.map(c => {
+      return [
+        `${c.nom}\n${c.prenom}`,
+        ...jours.map(j => {
+          const dateStr = formatDate(j);
+          return grille[c.id]?.[dateStr] ?? 'R';
+        }),
+      ];
+    });
+
+    autoTable(doc, {
+      head: headers,
+      body,
+      startY: 38,
+      styles: {
+        fontSize: 9,
+        cellPadding: 3,
+        halign: 'center',
+        valign: 'middle',
+      },
+      headStyles: {
+        fillColor: [37, 99, 235],
+        textColor: 255,
+        fontStyle: 'bold',
+        halign: 'center',
+      },
+      columnStyles: {
+        0: { halign: 'left', cellWidth: 40 },
+      },
+      didParseCell(data) {
+        if (data.section === 'body' && data.column.index > 0) {
+          const poste = data.cell.raw as Poste;
+          if (POSTE_COLOR[poste]) {
+            data.cell.styles.fillColor = POSTE_COLOR[poste];
+          }
+          if (poste === 'R') data.cell.styles.textColor = [156, 163, 175];
+          else data.cell.styles.textColor = [30, 30, 30];
+          data.cell.styles.fontStyle = 'bold';
+        }
+      },
+      foot: [[
+        { content: 'Légende : M = Matin  |  AM = Après-midi  |  N = Nuit  |  R = Repos  |  C = Congé', colSpan: 8, styles: { halign: 'left', fontSize: 8, textColor: [100, 100, 100] } }
+      ]],
+    });
+
+    const fileName = `planning_${rayonNom.toLowerCase().replace(/\s+/g, '_')}_${formatDate(semaine)}.pdf`;
+    doc.save(fileName);
+  }
+
   const semaineLabel = `${formatDisplay(semaine)} – ${formatDisplay(addDays(semaine, 6))}`;
 
   return (
@@ -192,7 +285,11 @@ export default function Planning() {
         {(isAdmin || isChefDep) && rayons.length > 1 && (
           <select
             value={rayonId}
-            onChange={e => setRayonId(e.target.value)}
+            onChange={e => {
+              setRayonId(e.target.value);
+              const r = rayons.find(r => r.id === e.target.value);
+              setRayonNom(r?.nom ?? '');
+            }}
             className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="">— Choisir un rayon —</option>
@@ -214,15 +311,24 @@ export default function Planning() {
           </button>
         </div>
 
-        {rayonId && (
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition"
-          >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            {saved ? 'Sauvegardé ✓' : 'Sauvegarder'}
-          </button>
+        {rayonId && collaborateurs.length > 0 && (
+          <div className="flex gap-2">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition"
+            >
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {saved ? 'Sauvegardé ✓' : 'Sauvegarder'}
+            </button>
+            <button
+              onClick={handleExportPDF}
+              className="flex items-center justify-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-emerald-700 transition"
+            >
+              <Printer className="w-4 h-4" />
+              PDF
+            </button>
+          </div>
         )}
       </div>
 
