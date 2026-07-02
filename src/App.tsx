@@ -8,6 +8,7 @@ import Utilisateurs from './pages/Utilisateurs';
 import Planning from './pages/Planning';
 import Dashboard from './pages/Dashboard';
 import Consolidation from './pages/Consolidation';
+import Rayons from './pages/Rayons';
 import { ROLE_LABELS, canAccessAdmin } from './types';
 
 function FullScreenMessage({ title, body, onSignOut }: { title: string; body: string; onSignOut: () => void }) {
@@ -209,11 +210,8 @@ function AppShell() {
               )}
               {adminSection === 'utilisateurs' && <Utilisateurs />}
               {adminSection === 'collaborateurs' && <Collaborateurs />}
-              {adminSection === 'rayons' && (
-                <div className="bg-white rounded-2xl p-6 text-center text-gray-400 text-sm py-16">
-                  Gestion des rayons à venir.
-                </div>
-              )}
+              {adminSection === 'rayons' && <Rayons />}
+                
             </>
           )}
 
