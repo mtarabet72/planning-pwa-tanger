@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, Menu, X } from 'lucide-react';
+import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, Menu, X, UserCog } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import ImportCollaborateurs from './pages/ImportCollaborateurs';
 import Collaborateurs from './pages/Collaborateurs';
+import Utilisateurs from './pages/Utilisateurs';
 import { ROLE_LABELS, canAccessAdmin } from './types';
 
 function FullScreenMessage({ title, body, onSignOut }: { title: string; body: string; onSignOut: () => void }) {
@@ -23,7 +24,7 @@ function FullScreenMessage({ title, body, onSignOut }: { title: string; body: st
 function AppShell() {
   const { profile, signOut } = useAuth();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'planning' | 'admin' | 'reports'>('dashboard');
-  const [adminSection, setAdminSection] = useState<'menu' | 'collaborateurs' | 'rayons'>('menu');
+  const [adminSection, setAdminSection] = useState<'menu' | 'collaborateurs' | 'utilisateurs' | 'rayons'>('menu');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showImport, setShowImport] = useState(false);
 
@@ -44,6 +45,13 @@ function AppShell() {
     setAdminSection('menu');
     setSidebarOpen(false);
   }
+
+  const adminTitle: Record<typeof adminSection, string> = {
+    menu: 'Administration',
+    collaborateurs: 'Collaborateurs',
+    utilisateurs: 'Utilisateurs',
+    rayons: 'Rayons',
+  };
 
   const Sidebar = () => (
     <div className="flex flex-col h-full">
@@ -98,16 +106,12 @@ function AppShell() {
   return (
     <div className="min-h-screen bg-gray-50">
 
-      {showImport && (
-        <ImportCollaborateurs onClose={() => { setShowImport(false); }} />
-      )}
+      {showImport && <ImportCollaborateurs onClose={() => setShowImport(false)} />}
 
-      {/* Sidebar desktop */}
       <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:w-72 lg:flex lg:flex-col bg-white border-r border-gray-200 shadow-xl z-50">
         <Sidebar />
       </div>
 
-      {/* Overlay mobile */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-black/40" onClick={() => setSidebarOpen(false)} />
@@ -120,10 +124,7 @@ function AppShell() {
         </div>
       )}
 
-      {/* Contenu principal */}
       <div className="lg:ml-72">
-
-        {/* Header mobile */}
         <div className="lg:hidden flex items-center gap-3 px-4 py-4 bg-white border-b border-gray-200 sticky top-0 z-30">
           <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-xl hover:bg-gray-100">
             <Menu className="w-5 h-5" />
@@ -140,19 +141,17 @@ function AppShell() {
               {activeTab === 'admin' && adminSection !== 'menu' && (
                 <button
                   onClick={() => setAdminSection('menu')}
-                  className="p-2 hover:bg-gray-100 rounded-xl text-gray-500"
+                  className="p-2 hover:bg-gray-100 rounded-xl text-gray-500 text-lg"
                 >
                   ←
                 </button>
               )}
               <div>
                 <h2 className="text-2xl lg:text-3xl font-bold text-gray-900">
-                  {activeTab === 'dashboard' && 'Tableau de Bord'}
-                  {activeTab === 'planning' && 'Planning'}
-                  {activeTab === 'admin' && adminSection === 'menu' && 'Administration'}
-                  {activeTab === 'admin' && adminSection === 'collaborateurs' && 'Collaborateurs'}
-                  {activeTab === 'admin' && adminSection === 'rayons' && 'Rayons'}
-                  {activeTab === 'reports' && 'Rapports'}
+                  {activeTab === 'admin' ? adminTitle[adminSection] : (
+                    activeTab === 'dashboard' ? 'Tableau de Bord' :
+                    activeTab === 'planning' ? 'Planning' : 'Rapports'
+                  )}
                 </h2>
                 <p className="text-gray-500 mt-1 text-sm">Bienvenue, {fullName}</p>
               </div>
@@ -198,6 +197,14 @@ function AppShell() {
               {adminSection === 'menu' && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <button
+                    onClick={() => setAdminSection('utilisateurs')}
+                    className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left"
+                  >
+                    <UserCog className="w-8 h-8 mb-3 text-purple-600" />
+                    <div className="font-semibold">Utilisateurs</div>
+                    <div className="text-xs text-gray-500 mt-1">Créer et gérer les comptes</div>
+                  </button>
+                  <button
                     onClick={() => setAdminSection('collaborateurs')}
                     className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left"
                   >
@@ -223,6 +230,7 @@ function AppShell() {
                   </button>
                 </div>
               )}
+              {adminSection === 'utilisateurs' && <Utilisateurs />}
               {adminSection === 'collaborateurs' && <Collaborateurs />}
               {adminSection === 'rayons' && (
                 <div className="bg-white rounded-2xl p-6 text-center text-gray-400 text-sm py-16">
