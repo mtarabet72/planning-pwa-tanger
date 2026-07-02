@@ -6,6 +6,7 @@ import ImportCollaborateurs from './pages/ImportCollaborateurs';
 import Collaborateurs from './pages/Collaborateurs';
 import Utilisateurs from './pages/Utilisateurs';
 import Planning from './pages/Planning';
+import Dashboard from './pages/Dashboard';
 import { ROLE_LABELS, canAccessAdmin } from './types';
 
 function FullScreenMessage({ title, body, onSignOut }: { title: string; body: string; onSignOut: () => void }) {
@@ -158,25 +159,7 @@ function AppShell() {
             </div>
           </header>
 
-          {activeTab === 'dashboard' && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                <h3 className="text-sm font-medium text-gray-500 mb-3">Plannings Validés</h3>
-                <div className="text-4xl font-bold text-emerald-600">—</div>
-                <p className="text-xs text-gray-400 mt-1">Cette semaine</p>
-              </div>
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                <h3 className="text-sm font-medium text-gray-500 mb-3">Heures Planifiées</h3>
-                <div className="text-4xl font-bold text-blue-600">—</div>
-                <p className="text-xs text-gray-400 mt-1">Ce mois</p>
-              </div>
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                <h3 className="text-sm font-medium text-gray-500 mb-3">Collaborateurs Actifs</h3>
-                <div className="text-4xl font-bold text-amber-600">—</div>
-                <p className="text-xs text-gray-400 mt-1">Sur le périmètre</p>
-              </div>
-            </div>
-          )}
+          {activeTab === 'dashboard' && <Dashboard />}
 
           {activeTab === 'planning' && <Planning />}
 
