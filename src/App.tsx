@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, Menu, X, UserCog } from 'lucide-react';
+import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, Menu, X, UserCog, LayoutGrid } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import ImportCollaborateurs from './pages/ImportCollaborateurs';
@@ -7,6 +7,7 @@ import Collaborateurs from './pages/Collaborateurs';
 import Utilisateurs from './pages/Utilisateurs';
 import Planning from './pages/Planning';
 import Dashboard from './pages/Dashboard';
+import Consolidation from './pages/Consolidation';
 import { ROLE_LABELS, canAccessAdmin } from './types';
 
 function FullScreenMessage({ title, body, onSignOut }: { title: string; body: string; onSignOut: () => void }) {
@@ -25,7 +26,7 @@ function FullScreenMessage({ title, body, onSignOut }: { title: string; body: st
 
 function AppShell() {
   const { profile, signOut } = useAuth();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'planning' | 'admin' | 'reports'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'planning' | 'consolidation' | 'admin' | 'reports'>('dashboard');
   const [adminSection, setAdminSection] = useState<'menu' | 'collaborateurs' | 'utilisateurs' | 'rayons'>('menu');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -33,11 +34,13 @@ function AppShell() {
   if (!profile) return null;
 
   const isAdmin = canAccessAdmin(profile.role);
+  const isChefDep = profile.role === 'chef_departement';
   const fullName = `${profile.prenom} ${profile.nom}`.trim();
 
   const menuItems = [
     { id: 'dashboard', label: 'Tableau de Bord', icon: BarChart3 },
     { id: 'planning', label: 'Planning', icon: Calendar },
+    { id: 'consolidation', label: 'Consolidation', icon: LayoutGrid, depOnly: true },
     { id: 'admin', label: 'Administration', icon: Users, adminOnly: true },
     { id: 'reports', label: 'Rapports', icon: FileText },
   ] as const;
@@ -68,6 +71,7 @@ function AppShell() {
         <nav className="space-y-1">
           {menuItems.map((item) => {
             if ('adminOnly' in item && item.adminOnly && !isAdmin) return null;
+            if ('depOnly' in item && item.depOnly && !isAdmin && !isChefDep) return null;
             const Icon = item.icon;
             return (
               <button
@@ -152,7 +156,9 @@ function AppShell() {
                 <h2 className="text-2xl lg:text-3xl font-bold text-gray-900">
                   {activeTab === 'admin' ? adminTitle[adminSection] :
                    activeTab === 'dashboard' ? 'Tableau de Bord' :
-                   activeTab === 'planning' ? 'Planning Hebdomadaire' : 'Rapports'}
+                   activeTab === 'planning' ? 'Planning Hebdomadaire' :
+                   activeTab === 'consolidation' ? 'Consolidation Département' :
+                   'Rapports'}
                 </h2>
                 <p className="text-gray-500 mt-1 text-sm">Bienvenue, {fullName}</p>
               </div>
@@ -160,8 +166,8 @@ function AppShell() {
           </header>
 
           {activeTab === 'dashboard' && <Dashboard />}
-
           {activeTab === 'planning' && <Planning />}
+          {activeTab === 'consolidation' && (isAdmin || isChefDep) && <Consolidation />}
 
           {activeTab === 'admin' && isAdmin && (
             <>
