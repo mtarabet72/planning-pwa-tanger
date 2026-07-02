@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Save, Loader2, Plus, Printer } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Save, Loader2, Plus, Printer, FileText } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { canAccessAdmin } from '../types';
@@ -215,7 +215,6 @@ export default function Planning() {
     const nameColW = 45;
     const colW = (pageW - margin * 2 - nameColW) / 7;
 
-    // En-tête bleue
     doc.setFillColor(37, 99, 235);
     doc.rect(0, 0, pageW, 24, 'F');
     doc.setTextColor(255, 255, 255);
@@ -229,7 +228,6 @@ export default function Planning() {
       margin, 19
     );
 
-    // En-tête tableau
     let y = 28;
     const headerH = 9;
     doc.setFillColor(240, 242, 255);
@@ -250,13 +248,11 @@ export default function Planning() {
     });
     y += headerH;
 
-    // Lignes
     const rowH = 10;
     collaborateurs.forEach((c, idx) => {
       const bg: [number, number, number] = idx % 2 === 0 ? [255, 255, 255] : [249, 250, 251];
       doc.setFillColor(...bg);
       doc.rect(margin, y, pageW - margin * 2, rowH, 'F');
-
       doc.setTextColor(30, 30, 30);
       doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
@@ -277,31 +273,22 @@ export default function Planning() {
         doc.setFont('helvetica', 'bold');
         doc.text(poste, x + colW / 2, y + 6.5, { align: 'center' });
       });
-
       y += rowH;
     });
 
-    // Bordure
     doc.setDrawColor(210, 210, 210);
     doc.rect(margin, 28, pageW - margin * 2, y - 28);
-
-    // Séparateur colonne nom
     doc.line(margin + nameColW, 28, margin + nameColW, y);
-
-    // Séparateurs colonnes jours
     jours.forEach((_, i) => {
       const x = margin + nameColW + i * colW;
       doc.line(x, 28, x, y);
     });
 
-    // Légende
     y += 5;
     doc.setFontSize(7);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(100, 100, 100);
     doc.text('Légende :  M = Matin   |   AM = Après-midi   |   N = Nuit   |   R = Repos   |   C = Congé', margin, y);
-
-    // Date impression
     doc.setFontSize(7);
     doc.setTextColor(180, 180, 180);
     doc.text(`Imprimé le ${new Date().toLocaleDateString('fr-FR')}`, pageW - margin, y, { align: 'right' });
@@ -309,19 +296,14 @@ export default function Planning() {
     const fileName = `planning_${rayonNom.toLowerCase().replace(/\s+/g, '_')}_${formatDate(semaine)}.pdf`;
     doc.save(fileName);
   }
-  function handleExportExcel() {
-    const wb = XLSX.utils.book_new();
 
-    // En-tête
+  function handleExportExcel() {
     const headers = [
-      'Collaborateur',
-      'Prénom',
+      'Collaborateur', 'Prénom',
       ...jours.map((j, i) => `${JOURS[i]} ${formatDisplay(j)}`),
-      'Total Travail',
-      'Total Repos/Congé',
+      'Total Travail', 'Total Repos/Congé',
     ];
 
-    // Lignes
     const rows = collaborateurs.map(c => {
       const postes = jours.map(j => grille[c.id]?.[formatDate(j)] ?? 'R');
       const travail = postes.filter(p => ['M', 'AM', 'N'].includes(p)).length;
@@ -329,7 +311,6 @@ export default function Planning() {
       return [c.nom, c.prenom, ...postes, travail, repos];
     });
 
-    // Ligne résumé postes
     const summary = [
       'TOTAL', '',
       ...jours.map(j => {
@@ -339,31 +320,12 @@ export default function Planning() {
           const p = grille[c.id]?.[dateStr] ?? 'R';
           counts[p] = (counts[p] ?? 0) + 1;
         }
-        return Object.entries(counts)
-          .filter(([, v]) => v > 0)
-          .map(([k, v]) => `${k}:${v}`)
-          .join(' ');
+        return Object.entries(counts).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(' ');
       }),
       '', '',
     ];
 
-    const wsData = [headers, ...rows, [], summary];
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-
-    // Largeurs colonnes
-    ws['!cols'] = [
-      { wch: 18 }, { wch: 14 },
-      ...jours.map(() => ({ wch: 12 })),
-      { wch: 14 }, { wch: 14 },
-    ];
-
-    // Titre dans une cellule au dessus
-    XLSX.utils.sheet_add_aoa(ws, [
-      [`PLANNING MARJANE TANGER — Rayon : ${rayonNom} — Semaine du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}`]
-    ], { origin: 'A1' });
-
-    // Décaler les données d'une ligne pour laisser le titre
-    const wsData2 = [
+    const wsData = [
       [`PLANNING MARJANE TANGER — Rayon : ${rayonNom} — Semaine du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}`],
       [],
       headers,
@@ -371,14 +333,16 @@ export default function Planning() {
       [],
       summary,
     ];
-    const ws2 = XLSX.utils.aoa_to_sheet(wsData2);
-    ws2['!cols'] = [
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!cols'] = [
       { wch: 18 }, { wch: 14 },
       ...jours.map(() => ({ wch: 12 })),
       { wch: 14 }, { wch: 14 },
     ];
 
-    XLSX.utils.book_append_sheet(wb, ws2, 'Planning');
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Planning');
 
     const fileName = `planning_${rayonNom.toLowerCase().replace(/\s+/g, '_')}_${formatDate(semaine)}.xlsx`;
     XLSX.writeFile(wb, fileName);
@@ -420,7 +384,7 @@ export default function Planning() {
         </div>
 
         {rayonId && collaborateurs.length > 0 && (
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <button
               onClick={handleSave}
               disabled={saving}
@@ -435,6 +399,13 @@ export default function Planning() {
             >
               <Printer className="w-4 h-4" />
               PDF
+            </button>
+            <button
+              onClick={handleExportExcel}
+              className="flex items-center gap-2 bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-green-700 transition"
+            >
+              <FileText className="w-4 h-4" />
+              Excel
             </button>
           </div>
         )}
