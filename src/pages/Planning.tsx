@@ -4,7 +4,6 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { canAccessAdmin } from '../types';
 import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 
 type Poste = 'M' | 'AM' | 'N' | 'R' | 'C';
 
@@ -22,7 +21,7 @@ const POSTE_LABEL: Record<Poste, string> = {
   M: 'Matin', AM: 'Après-midi', N: 'Nuit', R: 'Repos', C: 'Congé',
 };
 
-const POSTE_COLOR: Record<Poste, [number, number, number]> = {
+const POSTE_FILL: Record<Poste, [number, number, number]> = {
   M:  [254, 243, 199],
   AM: [219, 234, 254],
   N:  [224, 231, 255],
@@ -205,71 +204,103 @@ export default function Planning() {
 
   function handleExportPDF() {
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-
     const rayon = rayons.find(r => r.id === rayonId);
     const depNom = rayon?.departements?.nom ?? '';
-    const semaineStr = `Semaine du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}`;
+    const pageW = 297;
+    const margin = 14;
+    const nameColW = 45;
+    const colW = (pageW - margin * 2 - nameColW) / 7;
 
-    // En-tête
-    doc.setFontSize(16);
+    // En-tête bleue
+    doc.setFillColor(37, 99, 235);
+    doc.rect(0, 0, pageW, 24, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(15);
     doc.setFont('helvetica', 'bold');
-    doc.text('PLANNING MARJANE TANGER', 14, 18);
-
-    doc.setFontSize(11);
+    doc.text('PLANNING MARJANE TANGER', margin, 11);
+    doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
-    doc.text(`Rayon : ${rayonNom}${depNom ? ` — Département : ${depNom}` : ''}`, 14, 26);
-    doc.text(semaineStr, 14, 32);
+    doc.text(
+      `Rayon : ${rayonNom}${depNom ? '  |  Département : ' + depNom : ''}  |  Semaine du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}`,
+      margin, 19
+    );
 
-    // En-têtes colonnes
-    const headers = [
-      ['Collaborateur', ...jours.map((j, i) => `${JOURS[i]}\n${formatDisplay(j)}`)]
-    ];
+    // En-tête tableau
+    let y = 28;
+    const headerH = 9;
+    doc.setFillColor(240, 242, 255);
+    doc.rect(margin, y, nameColW, headerH, 'F');
+    doc.setTextColor(50, 50, 50);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Collaborateur', margin + 2, y + 6);
+
+    jours.forEach((j, i) => {
+      const x = margin + nameColW + i * colW;
+      doc.setFillColor(240, 242, 255);
+      doc.rect(x, y, colW, headerH, 'F');
+      doc.setTextColor(50, 50, 50);
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`${JOURS[i]} ${formatDisplay(j)}`, x + colW / 2, y + 6, { align: 'center' });
+    });
+    y += headerH;
 
     // Lignes
-    const body = collaborateurs.map(c => {
-      return [
-        `${c.nom}\n${c.prenom}`,
-        ...jours.map(j => {
-          const dateStr = formatDate(j);
-          return grille[c.id]?.[dateStr] ?? 'R';
-        }),
-      ];
+    const rowH = 10;
+    collaborateurs.forEach((c, idx) => {
+      const bg: [number, number, number] = idx % 2 === 0 ? [255, 255, 255] : [249, 250, 251];
+      doc.setFillColor(...bg);
+      doc.rect(margin, y, pageW - margin * 2, rowH, 'F');
+
+      doc.setTextColor(30, 30, 30);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.text(c.nom, margin + 2, y + 4);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(120, 120, 120);
+      doc.text(c.prenom, margin + 2, y + 8.5);
+
+      jours.forEach((j, i) => {
+        const dateStr = formatDate(j);
+        const poste: Poste = grille[c.id]?.[dateStr] ?? 'R';
+        const x = margin + nameColW + i * colW;
+        doc.setFillColor(...POSTE_FILL[poste]);
+        doc.rect(x + 1, y + 1, colW - 2, rowH - 2, 'F');
+        doc.setTextColor(30, 30, 30);
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'bold');
+        doc.text(poste, x + colW / 2, y + 6.5, { align: 'center' });
+      });
+
+      y += rowH;
     });
 
-    autoTable(doc, {
-      head: headers,
-      body,
-      startY: 38,
-      styles: {
-        fontSize: 9,
-        cellPadding: 3,
-        halign: 'center',
-        valign: 'middle',
-      },
-      headStyles: {
-        fillColor: [37, 99, 235],
-        textColor: 255,
-        fontStyle: 'bold',
-        halign: 'center',
-      },
-      columnStyles: {
-        0: { halign: 'left', cellWidth: 40 },
-      },
-      didParseCell(data) {
-        if (data.section === 'body' && data.column.index > 0) {
-          const poste = data.cell.raw as Poste;
-          if (POSTE_COLOR[poste]) {
-            data.cell.styles.fillColor = POSTE_COLOR[poste];
-          }
-          if (poste === 'R') data.cell.styles.textColor = [156, 163, 175];
-          else data.cell.styles.textColor = [30, 30, 30];
-          data.cell.styles.fontStyle = 'bold';
-        }
-      },
-      foot: [[
-        { content: 'Légende : M = Matin  |  AM = Après-midi  |  N = Nuit  |  R = Repos  |  C = Congé', colSpan: 8, styles: { halign: 'left', fontSize: 8, textColor: [100, 100, 100] } }
-      ]],
+    // Bordure
+    doc.setDrawColor(210, 210, 210);
+    doc.rect(margin, 28, pageW - margin * 2, y - 28);
+
+    // Séparateur colonne nom
+    doc.line(margin + nameColW, 28, margin + nameColW, y);
+
+    // Séparateurs colonnes jours
+    jours.forEach((_, i) => {
+      const x = margin + nameColW + i * colW;
+      doc.line(x, 28, x, y);
     });
+
+    // Légende
+    y += 5;
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 100, 100);
+    doc.text('Légende :  M = Matin   |   AM = Après-midi   |   N = Nuit   |   R = Repos   |   C = Congé', margin, y);
+
+    // Date impression
+    doc.setFontSize(7);
+    doc.setTextColor(180, 180, 180);
+    doc.text(`Imprimé le ${new Date().toLocaleDateString('fr-FR')}`, pageW - margin, y, { align: 'right' });
 
     const fileName = `planning_${rayonNom.toLowerCase().replace(/\s+/g, '_')}_${formatDate(semaine)}.pdf`;
     doc.save(fileName);
@@ -280,8 +311,7 @@ export default function Planning() {
   return (
     <div className="space-y-4">
 
-      {/* Contrôles */}
-      <div className="flex flex-col sm:flex-row gap-3">
+      <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
         {(isAdmin || isChefDep) && rayons.length > 1 && (
           <select
             value={rayonId}
@@ -316,14 +346,14 @@ export default function Planning() {
             <button
               onClick={handleSave}
               disabled={saving}
-              className="flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition"
+              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               {saved ? 'Sauvegardé ✓' : 'Sauvegarder'}
             </button>
             <button
               onClick={handleExportPDF}
-              className="flex items-center justify-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-emerald-700 transition"
+              className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-emerald-700 transition"
             >
               <Printer className="w-4 h-4" />
               PDF
@@ -332,7 +362,6 @@ export default function Planning() {
         )}
       </div>
 
-      {/* Légende */}
       <div className="flex flex-wrap gap-2">
         {POSTES.map(p => (
           <span key={p} className={`text-xs px-2 py-1 rounded-lg border font-medium ${POSTE_STYLE[p]}`}>
@@ -361,7 +390,6 @@ export default function Planning() {
         </div>
       )}
 
-      {/* Grille planning */}
       {rayonId && !loading && collaborateurs.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
           <div className="overflow-x-auto">
