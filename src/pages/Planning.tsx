@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { canAccessAdmin } from '../types';
 import jsPDF from 'jspdf';
+import * as XLSX from 'xlsx';
 
 type Poste = 'M' | 'AM' | 'N' | 'R' | 'C';
 
@@ -307,6 +308,80 @@ export default function Planning() {
 
     const fileName = `planning_${rayonNom.toLowerCase().replace(/\s+/g, '_')}_${formatDate(semaine)}.pdf`;
     doc.save(fileName);
+  }
+  function handleExportExcel() {
+    const wb = XLSX.utils.book_new();
+
+    // En-tête
+    const headers = [
+      'Collaborateur',
+      'Prénom',
+      ...jours.map((j, i) => `${JOURS[i]} ${formatDisplay(j)}`),
+      'Total Travail',
+      'Total Repos/Congé',
+    ];
+
+    // Lignes
+    const rows = collaborateurs.map(c => {
+      const postes = jours.map(j => grille[c.id]?.[formatDate(j)] ?? 'R');
+      const travail = postes.filter(p => ['M', 'AM', 'N'].includes(p)).length;
+      const repos = postes.filter(p => ['R', 'C'].includes(p)).length;
+      return [c.nom, c.prenom, ...postes, travail, repos];
+    });
+
+    // Ligne résumé postes
+    const summary = [
+      'TOTAL', '',
+      ...jours.map(j => {
+        const dateStr = formatDate(j);
+        const counts: Record<string, number> = { M: 0, AM: 0, N: 0, R: 0, C: 0 };
+        for (const c of collaborateurs) {
+          const p = grille[c.id]?.[dateStr] ?? 'R';
+          counts[p] = (counts[p] ?? 0) + 1;
+        }
+        return Object.entries(counts)
+          .filter(([, v]) => v > 0)
+          .map(([k, v]) => `${k}:${v}`)
+          .join(' ');
+      }),
+      '', '',
+    ];
+
+    const wsData = [headers, ...rows, [], summary];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    // Largeurs colonnes
+    ws['!cols'] = [
+      { wch: 18 }, { wch: 14 },
+      ...jours.map(() => ({ wch: 12 })),
+      { wch: 14 }, { wch: 14 },
+    ];
+
+    // Titre dans une cellule au dessus
+    XLSX.utils.sheet_add_aoa(ws, [
+      [`PLANNING MARJANE TANGER — Rayon : ${rayonNom} — Semaine du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}`]
+    ], { origin: 'A1' });
+
+    // Décaler les données d'une ligne pour laisser le titre
+    const wsData2 = [
+      [`PLANNING MARJANE TANGER — Rayon : ${rayonNom} — Semaine du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}`],
+      [],
+      headers,
+      ...rows,
+      [],
+      summary,
+    ];
+    const ws2 = XLSX.utils.aoa_to_sheet(wsData2);
+    ws2['!cols'] = [
+      { wch: 18 }, { wch: 14 },
+      ...jours.map(() => ({ wch: 12 })),
+      { wch: 14 }, { wch: 14 },
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws2, 'Planning');
+
+    const fileName = `planning_${rayonNom.toLowerCase().replace(/\s+/g, '_')}_${formatDate(semaine)}.xlsx`;
+    XLSX.writeFile(wb, fileName);
   }
 
   const semaineLabel = `${formatDisplay(semaine)} – ${formatDisplay(addDays(semaine, 6))}`;
