@@ -49,13 +49,6 @@ function getLundi(date: Date): string {
   return d.toISOString().split('T')[0];
 }
 
-interface RawCol {
-  id: string;
-  actif: boolean;
-  rayon_id: string | null;
-  rayons: { nom: string } | null;
-}
-
 export default function Dashboard() {
   const { profile } = useAuth();
   const isChefDep = profile?.role === 'chef_departement';
@@ -68,30 +61,27 @@ export default function Dashboard() {
     setLoading(true);
     const semaineCourante = getLundi(new Date());
 
-    // Récupérer les IDs de rayons du département si chef de département
     let rayonIds: string[] = [];
     if (isChefDep && profile?.departement_id) {
       const { data: rays } = await supabase
-        .from('rayons')
-        .select('id')
-        .eq('departement_id', profile.departement_id);
+        .from('rayons').select('id').eq('departement_id', profile.departement_id);
       rayonIds = (rays ?? []).map((r: { id: string }) => r.id);
     }
 
-    // Collaborateurs
-    let colQuery = supabase.from('collaborateurs').select('id, actif, rayon_id, rayons(nom)');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let colQuery: any = supabase.from('collaborateurs').select('id, actif, rayon_id, rayons(nom)');
     if (profile?.role === 'chef_rayon' && profile.rayon_id) {
       colQuery = colQuery.eq('rayon_id', profile.rayon_id);
     } else if (isChefDep && rayonIds.length > 0) {
       colQuery = colQuery.in('rayon_id', rayonIds);
     }
     const { data: colsRaw } = await colQuery;
-    const cols = (colsRaw ?? []) as RawCol[];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cols: any[] = colsRaw ?? [];
 
     const totalCollaborateurs = cols.length;
     const collaborateursActifs = cols.filter(c => c.actif).length;
 
-    // Rayons actifs avec nb collaborateurs
     const rayonMap: Record<string, { nom: string; nb: number }> = {};
     for (const c of cols) {
       if (!c.actif || !c.rayon_id) continue;
@@ -101,8 +91,8 @@ export default function Dashboard() {
     }
     const rayonsActifs = Object.values(rayonMap).sort((a, b) => b.nb - a.nb).slice(0, 5);
 
-    // Plannings cette semaine
-    let planQuery = supabase.from('plannings').select('id', { count: 'exact' }).eq('semaine_debut', semaineCourante);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let planQuery: any = supabase.from('plannings').select('id', { count: 'exact' }).eq('semaine_debut', semaineCourante);
     if (profile?.role === 'chef_rayon' && profile.rayon_id) {
       planQuery = planQuery.eq('rayon_id', profile.rayon_id);
     } else if (isChefDep && rayonIds.length > 0) {
@@ -110,8 +100,8 @@ export default function Dashboard() {
     }
     const { count: planningsCount } = await planQuery;
 
-    // Rayons total
-    let rayonsQuery = supabase.from('rayons').select('id', { count: 'exact' }).eq('actif', true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let rayonsQuery: any = supabase.from('rayons').select('id', { count: 'exact' }).eq('actif', true);
     if (isChefDep && profile?.departement_id) {
       rayonsQuery = rayonsQuery.eq('departement_id', profile.departement_id);
     } else if (profile?.role === 'chef_rayon' && profile.rayon_id) {
@@ -119,14 +109,14 @@ export default function Dashboard() {
     }
     const { count: rayonsCount } = await rayonsQuery;
 
-    // Répartition postes
-    const { data: lignes } = await supabase
+    const { data: lignesRaw } = await supabase
       .from('planning_lignes')
       .select('poste, plannings!inner(semaine_debut)')
       .eq('plannings.semaine_debut', semaineCourante);
 
     const repartition: Record<string, number> = { M: 0, AM: 0, N: 0, R: 0, C: 0 };
-    for (const l of (lignes ?? []) as { poste: string }[]) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const l of (lignesRaw ?? []) as any[]) {
       if (repartition[l.poste] !== undefined) repartition[l.poste]++;
     }
 
@@ -157,34 +147,16 @@ export default function Dashboard() {
     <div className="space-y-6">
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          label="Collaborateurs actifs"
-          value={stats.collaborateursActifs}
-          sub={`sur ${stats.totalCollaborateurs} total`}
-          color="bg-blue-50 text-blue-600"
-          icon={Users}
-        />
-        <StatCard
-          label="Plannings cette semaine"
-          value={stats.planningsSemaine}
-          sub={`sur ${stats.totalRayons} rayon(s)`}
-          color="bg-emerald-50 text-emerald-600"
-          icon={Calendar}
-        />
-        <StatCard
-          label="Rayons actifs"
-          value={stats.totalRayons}
-          sub="sur le périmètre"
-          color="bg-amber-50 text-amber-600"
-          icon={BarChart3}
-        />
+        <StatCard label="Collaborateurs actifs" value={stats.collaborateursActifs}
+          sub={`sur ${stats.totalCollaborateurs} total`} color="bg-blue-50 text-blue-600" icon={Users} />
+        <StatCard label="Plannings cette semaine" value={stats.planningsSemaine}
+          sub={`sur ${stats.totalRayons} rayon(s)`} color="bg-emerald-50 text-emerald-600" icon={Calendar} />
+        <StatCard label="Rayons actifs" value={stats.totalRayons}
+          sub="sur le périmètre" color="bg-amber-50 text-amber-600" icon={BarChart3} />
         <StatCard
           label="Taux de planification"
           value={stats.totalRayons > 0 ? `${Math.round((stats.planningsSemaine / stats.totalRayons) * 100)}%` : '—'}
-          sub="cette semaine"
-          color="bg-purple-50 text-purple-600"
-          icon={TrendingUp}
-        />
+          sub="cette semaine" color="bg-purple-50 text-purple-600" icon={TrendingUp} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -203,7 +175,7 @@ export default function Dashboard() {
                       <span className="text-gray-500">{nb} — {pct}%</span>
                     </div>
                     <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full ${POSTE_COLOR[poste]} transition-all`} style={{ width: `${pct}%` }} />
+                      <div className={`h-full rounded-full ${POSTE_COLOR[poste]}`} style={{ width: `${pct}%` }} />
                     </div>
                   </div>
                 );
@@ -227,10 +199,8 @@ export default function Dashboard() {
                       <span className="text-gray-500 shrink-0 ml-2">{r.nb} collab.</span>
                     </div>
                     <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-blue-400 rounded-full"
-                        style={{ width: `${stats.collaborateursActifs > 0 ? Math.round((r.nb / stats.collaborateursActifs) * 100) : 0}%` }}
-                      />
+                      <div className="h-full bg-blue-400 rounded-full"
+                        style={{ width: `${stats.collaborateursActifs > 0 ? Math.round((r.nb / stats.collaborateursActifs) * 100) : 0}%` }} />
                     </div>
                   </div>
                 </div>
@@ -252,8 +222,7 @@ export default function Dashboard() {
                 stats.planningsSemaine < stats.totalRayons
                   ? `${stats.totalRayons - stats.planningsSemaine} rayon(s) sans planning.`
                   : 'Tous les rayons sont planifiés ✓'
-              }`
-          }
+              }`}
         </p>
       </div>
     </div>
