@@ -128,7 +128,7 @@ export default function Utilisateurs() {
       // Création via Edge Function
       const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-user`,
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dynamic-worker`,
         {
           method: 'POST',
           headers: {
