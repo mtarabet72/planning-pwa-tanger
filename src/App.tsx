@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, Menu, X, UserCog, LayoutGrid, Building2 } from 'lucide-react';
+import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, Menu, X, UserCog, LayoutGrid, Building2, User } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import ImportCollaborateurs from './pages/ImportCollaborateurs';
@@ -11,6 +11,7 @@ import Consolidation from './pages/Consolidation';
 import Rayons from './pages/Rayons';
 import Rapports from './pages/Rapports';
 import Departements from './pages/Departements';
+import Profil from './pages/Profil';
 import { ROLE_LABELS, canAccessAdmin } from './types';
 
 function FullScreenMessage({ title, body, onSignOut }: { title: string; body: string; onSignOut: () => void }) {
@@ -29,7 +30,7 @@ function FullScreenMessage({ title, body, onSignOut }: { title: string; body: st
 
 function AppShell() {
   const { profile, signOut } = useAuth();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'planning' | 'consolidation' | 'admin' | 'reports'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'planning' | 'consolidation' | 'admin' | 'reports' | 'profil'>('dashboard');
   const [adminSection, setAdminSection] = useState<'menu' | 'collaborateurs' | 'utilisateurs' | 'rayons' | 'departements'>('menu');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -60,6 +61,15 @@ function AppShell() {
     utilisateurs: 'Utilisateurs',
     rayons: 'Rayons',
     departements: 'Départements',
+  };
+
+  const pageTitle: Record<typeof activeTab, string> = {
+    dashboard: 'Tableau de Bord',
+    planning: 'Planning Hebdomadaire',
+    consolidation: 'Consolidation Département',
+    admin: adminTitle[adminSection],
+    reports: 'Rapports',
+    profil: 'Mon Profil',
   };
 
   const Sidebar = () => (
@@ -94,16 +104,23 @@ function AppShell() {
       </div>
       <div className="p-6">
         <div className="bg-gray-50 p-4 rounded-2xl">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600 shrink-0">👋</div>
-            <div className="flex-1 min-w-0">
+          <button
+            onClick={() => handleNav('profil')}
+            className={`w-full flex items-center gap-3 mb-3 p-2 rounded-xl transition ${
+              activeTab === 'profil' ? 'bg-blue-50' : 'hover:bg-gray-100'
+            }`}
+          >
+            <div className="w-9 h-9 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600 shrink-0">
+              <User className="w-4 h-4" />
+            </div>
+            <div className="flex-1 min-w-0 text-left">
               <p className="font-medium text-sm truncate">{fullName || 'Utilisateur'}</p>
               <p className="text-xs text-gray-500">{ROLE_LABELS[profile.role]}</p>
             </div>
-          </div>
+          </button>
           <button
             onClick={() => void signOut()}
-            className="mt-4 w-full flex items-center justify-center gap-2 text-red-600 hover:bg-red-50 py-2 rounded-xl text-sm font-medium"
+            className="w-full flex items-center justify-center gap-2 text-red-600 hover:bg-red-50 py-2 rounded-xl text-sm font-medium"
           >
             <LogOut className="w-4 h-4" />
             Déconnexion
@@ -158,11 +175,7 @@ function AppShell() {
               )}
               <div>
                 <h2 className="text-2xl lg:text-3xl font-bold text-gray-900">
-                  {activeTab === 'admin' ? adminTitle[adminSection] :
-                   activeTab === 'dashboard' ? 'Tableau de Bord' :
-                   activeTab === 'planning' ? 'Planning Hebdomadaire' :
-                   activeTab === 'consolidation' ? 'Consolidation Département' :
-                   activeTab === 'reports' ? 'Rapports' : ''}
+                  {pageTitle[activeTab]}
                 </h2>
                 <p className="text-gray-500 mt-1 text-sm">Bienvenue, {fullName}</p>
               </div>
@@ -173,6 +186,7 @@ function AppShell() {
           {activeTab === 'planning' && <Planning />}
           {activeTab === 'consolidation' && (isAdmin || isChefDep) && <Consolidation />}
           {activeTab === 'reports' && <Rapports />}
+          {activeTab === 'profil' && <Profil />}
 
           {activeTab === 'admin' && isAdmin && (
             <>
