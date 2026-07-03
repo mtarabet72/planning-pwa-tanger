@@ -9,6 +9,7 @@ import Planning from './pages/Planning';
 import Dashboard from './pages/Dashboard';
 import Consolidation from './pages/Consolidation';
 import Rayons from './pages/Rayons';
+import Rapports from './pages/Rapports';
 import { ROLE_LABELS, canAccessAdmin } from './types';
 
 function FullScreenMessage({ title, body, onSignOut }: { title: string; body: string; onSignOut: () => void }) {
@@ -159,7 +160,7 @@ function AppShell() {
                    activeTab === 'dashboard' ? 'Tableau de Bord' :
                    activeTab === 'planning' ? 'Planning Hebdomadaire' :
                    activeTab === 'consolidation' ? 'Consolidation Département' :
-                   'Rapports'}
+                   activeTab === 'reports' ? 'Rapports' : ''}
                 </h2>
                 <p className="text-gray-500 mt-1 text-sm">Bienvenue, {fullName}</p>
               </div>
@@ -169,6 +170,7 @@ function AppShell() {
           {activeTab === 'dashboard' && <Dashboard />}
           {activeTab === 'planning' && <Planning />}
           {activeTab === 'consolidation' && (isAdmin || isChefDep) && <Consolidation />}
+          {activeTab === 'reports' && <Rapports />}
 
           {activeTab === 'admin' && isAdmin && (
             <>
@@ -211,15 +213,7 @@ function AppShell() {
               {adminSection === 'utilisateurs' && <Utilisateurs />}
               {adminSection === 'collaborateurs' && <Collaborateurs />}
               {adminSection === 'rayons' && <Rayons />}
-                
             </>
-          )}
-
-          {activeTab === 'reports' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="bg-white p-6 rounded-2xl shadow-sm">Planning Journalier</div>
-              <div className="bg-white p-6 rounded-2xl shadow-sm">Rapport Mensuel</div>
-            </div>
           )}
         </div>
       </div>
