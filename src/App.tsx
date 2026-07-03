@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, Menu, X, UserCog, LayoutGrid } from 'lucide-react';
+import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, Menu, X, UserCog, LayoutGrid, Building2 } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import ImportCollaborateurs from './pages/ImportCollaborateurs';
@@ -10,6 +10,7 @@ import Dashboard from './pages/Dashboard';
 import Consolidation from './pages/Consolidation';
 import Rayons from './pages/Rayons';
 import Rapports from './pages/Rapports';
+import Departements from './pages/Departements';
 import { ROLE_LABELS, canAccessAdmin } from './types';
 
 function FullScreenMessage({ title, body, onSignOut }: { title: string; body: string; onSignOut: () => void }) {
@@ -29,7 +30,7 @@ function FullScreenMessage({ title, body, onSignOut }: { title: string; body: st
 function AppShell() {
   const { profile, signOut } = useAuth();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'planning' | 'consolidation' | 'admin' | 'reports'>('dashboard');
-  const [adminSection, setAdminSection] = useState<'menu' | 'collaborateurs' | 'utilisateurs' | 'rayons'>('menu');
+  const [adminSection, setAdminSection] = useState<'menu' | 'collaborateurs' | 'utilisateurs' | 'rayons' | 'departements'>('menu');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showImport, setShowImport] = useState(false);
 
@@ -58,6 +59,7 @@ function AppShell() {
     collaborateurs: 'Collaborateurs',
     utilisateurs: 'Utilisateurs',
     rayons: 'Rayons',
+    departements: 'Départements',
   };
 
   const Sidebar = () => (
@@ -206,13 +208,22 @@ function AppShell() {
                   >
                     <Settings className="w-8 h-8 mb-3 text-amber-600" />
                     <div className="font-semibold">Rayons</div>
-                    <div className="text-xs text-gray-500 mt-1">Départements &amp; Rayons</div>
+                    <div className="text-xs text-gray-500 mt-1">Gérer les rayons</div>
+                  </button>
+                  <button
+                    onClick={() => setAdminSection('departements')}
+                    className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left"
+                  >
+                    <Building2 className="w-8 h-8 mb-3 text-purple-600" />
+                    <div className="font-semibold">Départements</div>
+                    <div className="text-xs text-gray-500 mt-1">Gérer les départements</div>
                   </button>
                 </div>
               )}
               {adminSection === 'utilisateurs' && <Utilisateurs />}
               {adminSection === 'collaborateurs' && <Collaborateurs />}
               {adminSection === 'rayons' && <Rayons />}
+              {adminSection === 'departements' && <Departements />}
             </>
           )}
         </div>
