@@ -41,12 +41,13 @@ export default function Departements() {
       .from('collaborateurs').select('id, rayon_id, rayons(departement_id)').eq('actif', true);
 
     const rayonMap: Record<string, number> = {};
-    for (const r of rayons ?? []) {
+    for (const r of (rayons ?? []) as { id: string; departement_id: string }[]) {
       rayonMap[r.departement_id] = (rayonMap[r.departement_id] ?? 0) + 1;
     }
 
     const colMap: Record<string, number> = {};
-    for (const c of (cols ?? []) as { rayon_id: string; rayons: { departement_id: string } | null }[]) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const c of (cols ?? []) as any[]) {
       const depId = c.rayons?.departement_id;
       if (depId) colMap[depId] = (colMap[depId] ?? 0) + 1;
     }
@@ -107,8 +108,8 @@ export default function Departements() {
     loadAll();
   }
 
-  const totalRayons = departements.reduce((a, d) => a + (d.nb_rayons ?? 0), 0);
-  const totalCols = departements.reduce((a, d) => a + (d.nb_collaborateurs ?? 0), 0);
+  const totalRayons = departements.reduce((a: number, d: Departement) => a + (d.nb_rayons ?? 0), 0);
+  const totalCols = departements.reduce((a: number, d: Departement) => a + (d.nb_collaborateurs ?? 0), 0);
 
   return (
     <div className="space-y-4">
