@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { useState, useEffect } from 'react';
 import { Loader2, Printer, FileText, Calendar, BarChart3, Sun } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -252,7 +251,7 @@ export default function Rapports() {
     doc.text(formatDisplayLong(new Date(date)), margin, 17);
 
     let y = 28;
-    const total = journalierData.reduce((acc, r) => acc + r.collaborateurs.length, 0);
+    const total = journalierData.reduce((acc: number, r: RayonLigne) => acc + r.collaborateurs.length, 0);
     doc.setFontSize(9);
     doc.setTextColor(60, 60, 60);
     doc.text(`Total présents : ${total} collaborateur(s)`, margin, y);
@@ -295,7 +294,7 @@ export default function Rapports() {
       headers,
       ...rows,
       [],
-      ['TOTAL', '', '', moisData.reduce((a, c) => a + c.travail, 0), moisData.reduce((a, c) => a + c.repos, 0), moisData.reduce((a, c) => a + c.conge, 0), ''],
+      ['TOTAL', '', '', moisData.reduce((a: number, c: MoisLigne) => a + c.travail, 0), moisData.reduce((a: number, c: MoisLigne) => a + c.repos, 0), moisData.reduce((a: number, c: MoisLigne) => a + c.conge, 0), ''],
     ];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     ws['!cols'] = [{ wch: 18 }, { wch: 14 }, { wch: 20 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
@@ -381,7 +380,7 @@ export default function Rapports() {
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-white rounded-2xl p-4 border border-gray-100 text-center">
-                    <div className="text-2xl font-bold text-blue-600">{journalierData.reduce((a, r) => a + r.collaborateurs.length, 0)}</div>
+                    <div className="text-2xl font-bold text-blue-600">{journalierData.reduce((a: number, r: RayonLigne) => a + r.collaborateurs.length, 0)}</div>
                     <div className="text-xs text-gray-500 mt-1">Présents aujourd'hui</div>
                   </div>
                   <div className="bg-white rounded-2xl p-4 border border-gray-100 text-center">
@@ -501,10 +500,10 @@ export default function Rapports() {
                     <tfoot className="bg-gray-50 border-t border-gray-100">
                       <tr>
                         <td colSpan={2} className="px-4 py-3 font-semibold text-sm">TOTAL</td>
-                        <td className="px-3 py-3 text-center font-bold text-blue-600">{moisData.reduce((a, c) => a + c.travail, 0)}j</td>
-                        <td className="px-3 py-3 text-center text-gray-400 text-xs">{moisData.reduce((a, c) => a + c.repos, 0)}j</td>
-                        <td className="px-3 py-3 text-center text-emerald-600 text-xs">{moisData.reduce((a, c) => a + c.conge, 0)}j</td>
-                        <td className="px-3 py-3 text-center text-gray-500 text-xs">{moisData.reduce((a, c) => a + c.total, 0)}j</td>
+                        <td className="px-3 py-3 text-center font-bold text-blue-600">{moisData.reduce((a: number, c: MoisLigne) => a + c.travail, 0)}j</td>
+                        <td className="px-3 py-3 text-center text-gray-400 text-xs">{moisData.reduce((a: number, c: MoisLigne) => a + c.repos, 0)}j</td>
+                        <td className="px-3 py-3 text-center text-emerald-600 text-xs">{moisData.reduce((a: number, c: MoisLigne) => a + c.conge, 0)}j</td>
+                        <td className="px-3 py-3 text-center text-gray-500 text-xs">{moisData.reduce((a: number, c: MoisLigne) => a + c.total, 0)}j</td>
                       </tr>
                     </tfoot>
                   </table>
