@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Loader2, Printer, FileText, Calendar, BarChart3, Sun } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -89,13 +90,11 @@ export default function Rapports() {
   const [activeTab, setActiveTab] = useState<TabType>('journalier');
   const [loading, setLoading] = useState(false);
 
-  // Filtres
   const [date, setDate] = useState<string>(formatDate(new Date()));
   const [semaine, setSemaine] = useState<Date>(getLundi(new Date()));
   const [mois, setMois] = useState<string>(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
   const [filterDep, setFilterDep] = useState<string>('');
 
-  // Données
   const [departements, setDepartements] = useState<{ id: string; nom: string }[]>([]);
   const [journalierData, setJournalierData] = useState<RayonLigne[]>([]);
   const [hebdoData, setHebdoData] = useState<SemaineLigne[]>([]);
@@ -120,7 +119,8 @@ export default function Rapports() {
   }
 
   async function loadJournalier() {
-    let rayQuery = supabase.from('rayons').select('id, nom, departement_id').eq('actif', true).order('nom');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let rayQuery: any = supabase.from('rayons').select('id, nom, departement_id').eq('actif', true).order('nom');
     if (profile?.role === 'chef_rayon' && profile.rayon_id) rayQuery = rayQuery.eq('id', profile.rayon_id);
     else if (isChefDep && profile?.departement_id) rayQuery = rayQuery.eq('departement_id', profile.departement_id);
     else if (filterDep) rayQuery = rayQuery.eq('departement_id', filterDep);
@@ -154,7 +154,8 @@ export default function Rapports() {
   }
 
   async function loadHebdo() {
-    let rayQuery = supabase.from('rayons').select('id, nom, departements(nom)').eq('actif', true).order('nom');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let rayQuery: any = supabase.from('rayons').select('id, nom, departements(nom)').eq('actif', true).order('nom');
     if (profile?.role === 'chef_rayon' && profile.rayon_id) rayQuery = rayQuery.eq('id', profile.rayon_id);
     else if (isChefDep && profile?.departement_id) rayQuery = rayQuery.eq('departement_id', profile.departement_id);
     else if (filterDep) rayQuery = rayQuery.eq('departement_id', filterDep);
@@ -164,7 +165,8 @@ export default function Rapports() {
     const debut = formatDate(semaine);
     const result: SemaineLigne[] = [];
 
-    for (const rayon of rayons as { id: string; nom: string; departements: { nom: string } | null }[]) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const rayon of rayons as any[]) {
       const { data: plan } = await supabase
         .from('plannings').select('id').eq('rayon_id', rayon.id).eq('semaine_debut', debut).single();
 
@@ -173,7 +175,7 @@ export default function Rapports() {
 
       if (!cols?.length) continue;
 
-      const colsData = await Promise.all(cols.map(async c => {
+      const colsData = await Promise.all(cols.map(async (c: { id: string; nom: string; prenom: string }) => {
         const postes: Poste[] = [];
         for (const j of jours) {
           if (plan) {
@@ -197,9 +199,11 @@ export default function Rapports() {
     const [year, month] = mois.split('-').map(Number);
     const { debut, fin } = getMonth(new Date(year, month - 1, 1));
 
-    let colQuery = supabase.from('collaborateurs').select('id, nom, prenom, rayon_id, rayons(nom)').eq('actif', true).order('nom');
-    if (profile?.role === 'chef_rayon' && profile.rayon_id) colQuery = colQuery.eq('rayon_id', profile.rayon_id);
-    else if (isChefDep && profile?.departement_id) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let colQuery: any = supabase.from('collaborateurs').select('id, nom, prenom, rayon_id, rayons(nom)').eq('actif', true).order('nom');
+    if (profile?.role === 'chef_rayon' && profile.rayon_id) {
+      colQuery = colQuery.eq('rayon_id', profile.rayon_id);
+    } else if (isChefDep && profile?.departement_id) {
       const { data: rays } = await supabase.from('rayons').select('id').eq('departement_id', profile.departement_id);
       colQuery = colQuery.in('rayon_id', (rays ?? []).map((r: { id: string }) => r.id));
     } else if (filterDep) {
@@ -213,11 +217,12 @@ export default function Rapports() {
       .from('planning_lignes').select('collaborateur_id, poste, jour')
       .gte('jour', formatDate(debut)).lte('jour', formatDate(fin));
 
-    const result: MoisLigne[] = (cols as { id: string; nom: string; prenom: string; rayons: { nom: string } | null }[]).map(c => {
-      const cLignes = (lignes ?? []).filter(l => l.collaborateur_id === c.id);
-      const travail = cLignes.filter(l => ['M', 'AM', 'N'].includes(l.poste)).length;
-      const repos = cLignes.filter(l => l.poste === 'R').length;
-      const conge = cLignes.filter(l => l.poste === 'C').length;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result: MoisLigne[] = (cols as any[]).map(c => {
+      const cLignes = (lignes ?? []).filter((l: { collaborateur_id: string }) => l.collaborateur_id === c.id);
+      const travail = cLignes.filter((l: { poste: string }) => ['M', 'AM', 'N'].includes(l.poste)).length;
+      const repos = cLignes.filter((l: { poste: string }) => l.poste === 'R').length;
+      const conge = cLignes.filter((l: { poste: string }) => l.poste === 'C').length;
       return {
         nom: c.nom,
         prenom: c.prenom,
@@ -276,17 +281,14 @@ export default function Rapports() {
       }
       y += 2;
     }
-
     doc.save(`rapport_journalier_${date}.pdf`);
   }
 
   function exportMensuelExcel() {
     const [year, month] = mois.split('-').map(Number);
     const nomMois = new Date(year, month - 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
-
     const headers = ['Nom', 'Prénom', 'Rayon', 'Jours Travaillés', 'Jours Repos', 'Jours Congé', 'Total Planifié'];
     const rows = moisData.map(c => [c.nom, c.prenom, c.rayonNom, c.travail, c.repos, c.conge, c.total]);
-
     const wsData = [
       [`RAPPORT MENSUEL — MARJANE TANGER — ${nomMois.toUpperCase()}`],
       [],
@@ -295,7 +297,6 @@ export default function Rapports() {
       [],
       ['TOTAL', '', '', moisData.reduce((a, c) => a + c.travail, 0), moisData.reduce((a, c) => a + c.repos, 0), moisData.reduce((a, c) => a + c.conge, 0), ''],
     ];
-
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     ws['!cols'] = [{ wch: 18 }, { wch: 14 }, { wch: 20 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
     const wb = XLSX.utils.book_new();
@@ -312,7 +313,6 @@ export default function Rapports() {
   return (
     <div className="space-y-4">
 
-      {/* Onglets */}
       <div className="flex gap-2 bg-white rounded-2xl p-1.5 border border-gray-100 w-fit">
         {tabs.map(t => {
           const Icon = t.icon;
@@ -331,15 +331,10 @@ export default function Rapports() {
         })}
       </div>
 
-      {/* Filtres */}
       <div className="flex flex-wrap gap-3">
         {activeTab === 'journalier' && (
-          <input
-            type="date"
-            value={date}
-            onChange={e => setDate(e.target.value)}
-            className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+          <input type="date" value={date} onChange={e => setDate(e.target.value)}
+            className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
         )}
         {activeTab === 'hebdomadaire' && (
           <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2">
@@ -349,19 +344,12 @@ export default function Rapports() {
           </div>
         )}
         {activeTab === 'mensuel' && (
-          <input
-            type="month"
-            value={mois}
-            onChange={e => setMois(e.target.value)}
-            className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+          <input type="month" value={mois} onChange={e => setMois(e.target.value)}
+            className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
         )}
-        {(isAdmin) && (
-          <select
-            value={filterDep}
-            onChange={e => setFilterDep(e.target.value)}
-            className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
+        {isAdmin && (
+          <select value={filterDep} onChange={e => setFilterDep(e.target.value)}
+            className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
             <option value="">Tous les départements</option>
             {departements.map(d => <option key={d.id} value={d.id}>{d.nom}</option>)}
           </select>
@@ -384,7 +372,6 @@ export default function Rapports() {
         </div>
       ) : (
         <>
-          {/* JOURNALIER */}
           {activeTab === 'journalier' && (
             journalierData.length === 0 ? (
               <div className="bg-white rounded-2xl p-10 text-center text-gray-400 text-sm">
@@ -427,7 +414,6 @@ export default function Rapports() {
             )
           )}
 
-          {/* HEBDOMADAIRE */}
           {activeTab === 'hebdomadaire' && (
             hebdoData.length === 0 ? (
               <div className="bg-white rounded-2xl p-10 text-center text-gray-400 text-sm">
@@ -478,7 +464,6 @@ export default function Rapports() {
             )
           )}
 
-          {/* MENSUEL */}
           {activeTab === 'mensuel' && (
             moisData.length === 0 ? (
               <div className="bg-white rounded-2xl p-10 text-center text-gray-400 text-sm">
@@ -506,9 +491,7 @@ export default function Rapports() {
                             <div className="text-xs text-gray-400">{c.prenom}</div>
                           </td>
                           <td className="px-4 py-3 text-xs text-gray-500">{c.rayonNom}</td>
-                          <td className="px-3 py-3 text-center">
-                            <span className="font-bold text-blue-600">{c.travail}j</span>
-                          </td>
+                          <td className="px-3 py-3 text-center font-bold text-blue-600">{c.travail}j</td>
                           <td className="px-3 py-3 text-center text-gray-400 text-xs">{c.repos}j</td>
                           <td className="px-3 py-3 text-center text-emerald-600 text-xs">{c.conge}j</td>
                           <td className="px-3 py-3 text-center text-gray-500 text-xs">{c.total}j</td>
