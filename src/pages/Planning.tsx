@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Save, Loader2, Plus, Printer, FileText } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Save, Loader2, Plus, Printer, FileText, Send } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { canAccessAdmin } from '../types';
@@ -7,6 +7,7 @@ import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 
 type Poste = 'M' | 'AM' | 'N' | 'R' | 'C';
+type Statut = 'brouillon' | 'soumis' | 'valide' | 'rejete';
 
 const POSTES: Poste[] = ['M', 'AM', 'N', 'R', 'C'];
 
@@ -28,6 +29,20 @@ const POSTE_FILL: Record<Poste, [number, number, number]> = {
   N:  [224, 231, 255],
   R:  [243, 244, 246],
   C:  [209, 250, 229],
+};
+
+const STATUT_STYLE: Record<Statut, string> = {
+  brouillon: 'bg-gray-100 text-gray-600',
+  soumis:    'bg-amber-100 text-amber-700',
+  valide:    'bg-emerald-100 text-emerald-700',
+  rejete:    'bg-red-100 text-red-700',
+};
+
+const STATUT_LABEL: Record<Statut, string> = {
+  brouillon: 'Brouillon',
+  soumis:    'Soumis — en attente de validation',
+  valide:    'Validé ✓',
+  rejete:    'Rejeté',
 };
 
 const JOURS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
@@ -81,6 +96,7 @@ export default function Planning() {
   const { profile } = useAuth();
   const isAdmin = profile ? canAccessAdmin(profile.role) : false;
   const isChefDep = profile?.role === 'chef_departement';
+  const isChefRayon = profile?.role === 'chef_rayon';
 
   const [semaine, setSemaine] = useState<Date>(getLundi(new Date()));
   const [rayons, setRayons] = useState<Rayon[]>([]);
@@ -89,17 +105,22 @@ export default function Planning() {
   const [collaborateurs, setCollaborateurs] = useState<Collaborateur[]>([]);
   const [grille, setGrille] = useState<Grille>({});
   const [planningId, setPlanningId] = useState<string | null>(null);
+  const [planningStatut, setPlanningStatut] = useState<Statut>('brouillon');
+  const [planningCommentaire, setPlanningCommentaire] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const jours = Array.from({ length: 7 }, (_, i) => addDays(semaine, i));
+  const readOnly = planningStatut === 'soumis' || planningStatut === 'valide';
 
   useEffect(() => { loadRayons(); }, []);
   useEffect(() => { if (rayonId) loadPlanning(); }, [rayonId, semaine]);
 
   async function loadRayons() {
-    let query = supabase.from('rayons').select('*, departements(nom)').order('nom');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let query: any = supabase.from('rayons').select('*, departements(nom)').order('nom');
     if (profile?.role === 'chef_rayon' && profile.rayon_id) {
       query = query.eq('id', profile.rayon_id);
     } else if (isChefDep && profile?.departement_id) {
@@ -118,30 +139,27 @@ export default function Planning() {
     setLoading(true);
     setGrille({});
     setPlanningId(null);
+    setPlanningStatut('brouillon');
+    setPlanningCommentaire(null);
 
     const debut = formatDate(semaine);
 
     const { data: cols } = await supabase
-      .from('collaborateurs')
-      .select('id, nom, prenom')
-      .eq('rayon_id', rayonId)
-      .eq('actif', true)
-      .order('nom');
+      .from('collaborateurs').select('id, nom, prenom')
+      .eq('rayon_id', rayonId).eq('actif', true).order('nom');
     setCollaborateurs((cols as Collaborateur[]) ?? []);
 
     const { data: plan } = await supabase
-      .from('plannings')
-      .select('id')
-      .eq('rayon_id', rayonId)
-      .eq('semaine_debut', debut)
-      .single();
+      .from('plannings').select('id, statut, commentaire')
+      .eq('rayon_id', rayonId).eq('semaine_debut', debut).single();
 
     if (plan) {
       setPlanningId(plan.id);
+      setPlanningStatut(plan.statut as Statut);
+      setPlanningCommentaire(plan.commentaire);
+
       const { data: lignes } = await supabase
-        .from('planning_lignes')
-        .select('*')
-        .eq('planning_id', plan.id);
+        .from('planning_lignes').select('*').eq('planning_id', plan.id);
 
       const g: Grille = {};
       for (const l of lignes ?? []) {
@@ -157,11 +175,11 @@ export default function Planning() {
       }
       setGrille(g);
     }
-
     setLoading(false);
   }
 
   function cyclePoste(colId: string, jour: string) {
+    if (readOnly) return;
     setGrille(prev => {
       const current: Poste = prev[colId]?.[jour] ?? 'R';
       const idx = POSTES.indexOf(current);
@@ -172,21 +190,19 @@ export default function Planning() {
   }
 
   async function handleSave() {
+    if (readOnly) return;
     setSaving(true);
     const debut = formatDate(semaine);
     let pid = planningId;
 
     if (!pid) {
-      const { data } = await supabase
-        .from('plannings')
-        .upsert(
-          { rayon_id: rayonId, semaine_debut: debut, created_by: profile?.id },
-          { onConflict: 'rayon_id,semaine_debut' }
-        )
-        .select('id')
-        .single();
+      const { data } = await supabase.from('plannings')
+        .upsert({ rayon_id: rayonId, semaine_debut: debut, created_by: profile?.id, statut: 'brouillon' },
+          { onConflict: 'rayon_id,semaine_debut' })
+        .select('id').single();
       pid = data?.id ?? null;
       setPlanningId(pid);
+      setPlanningStatut('brouillon');
     }
 
     if (!pid) { setSaving(false); return; }
@@ -197,13 +213,29 @@ export default function Planning() {
         lignes.push({ planning_id: pid, collaborateur_id: colId, jour, poste });
       }
     }
-
     await supabase.from('planning_lignes')
       .upsert(lignes, { onConflict: 'planning_id,collaborateur_id,jour' });
 
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function handleSoumettre() {
+    if (!planningId) return;
+    setSubmitting(true);
+    await supabase.from('plannings').update({ statut: 'soumis', commentaire: null }).eq('id', planningId);
+    setPlanningStatut('soumis');
+    setSubmitting(false);
+  }
+
+  async function handleReprendreEnBrouillon() {
+    if (!planningId) return;
+    setSubmitting(true);
+    await supabase.from('plannings').update({ statut: 'brouillon', commentaire: null }).eq('id', planningId);
+    setPlanningStatut('brouillon');
+    setPlanningCommentaire(null);
+    setSubmitting(false);
   }
 
   function handleExportPDF() {
@@ -223,10 +255,7 @@ export default function Planning() {
     doc.text('PLANNING MARJANE TANGER', margin, 11);
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
-    doc.text(
-      `Rayon : ${rayonNom}${depNom ? '  |  Département : ' + depNom : ''}  |  Semaine du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}`,
-      margin, 19
-    );
+    doc.text(`Rayon : ${rayonNom}${depNom ? '  |  Département : ' + depNom : ''}  |  Semaine du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}`, margin, 19);
 
     let y = 28;
     const headerH = 9;
@@ -241,9 +270,7 @@ export default function Planning() {
       const x = margin + nameColW + i * colW;
       doc.setFillColor(240, 242, 255);
       doc.rect(x, y, colW, headerH, 'F');
-      doc.setTextColor(50, 50, 50);
       doc.setFontSize(7.5);
-      doc.setFont('helvetica', 'bold');
       doc.text(`${JOURS[i]} ${formatDisplay(j)}`, x + colW / 2, y + 6, { align: 'center' });
     });
     y += headerH;
@@ -263,8 +290,7 @@ export default function Planning() {
       doc.text(c.prenom, margin + 2, y + 8.5);
 
       jours.forEach((j, i) => {
-        const dateStr = formatDate(j);
-        const poste: Poste = grille[c.id]?.[dateStr] ?? 'R';
+        const poste: Poste = grille[c.id]?.[formatDate(j)] ?? 'R';
         const x = margin + nameColW + i * colW;
         doc.setFillColor(...POSTE_FILL[poste]);
         doc.rect(x + 1, y + 1, colW - 2, rowH - 2, 'F');
@@ -280,72 +306,37 @@ export default function Planning() {
     doc.rect(margin, 28, pageW - margin * 2, y - 28);
     doc.line(margin + nameColW, 28, margin + nameColW, y);
     jours.forEach((_, i) => {
-      const x = margin + nameColW + i * colW;
-      doc.line(x, 28, x, y);
+      doc.line(margin + nameColW + i * colW, 28, margin + nameColW + i * colW, y);
     });
 
     y += 5;
     doc.setFontSize(7);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(100, 100, 100);
-    doc.text('Légende :  M = Matin   |   AM = Après-midi   |   N = Nuit   |   R = Repos   |   C = Congé', margin, y);
-    doc.setFontSize(7);
+    doc.text('M = Matin  |  AM = Après-midi  |  N = Nuit  |  R = Repos  |  C = Congé', margin, y);
     doc.setTextColor(180, 180, 180);
     doc.text(`Imprimé le ${new Date().toLocaleDateString('fr-FR')}`, pageW - margin, y, { align: 'right' });
 
-    const fileName = `planning_${rayonNom.toLowerCase().replace(/\s+/g, '_')}_${formatDate(semaine)}.pdf`;
-    doc.save(fileName);
+    doc.save(`planning_${rayonNom.toLowerCase().replace(/\s+/g, '_')}_${formatDate(semaine)}.pdf`);
   }
 
   function handleExportExcel() {
-    const headers = [
-      'Collaborateur', 'Prénom',
-      ...jours.map((j, i) => `${JOURS[i]} ${formatDisplay(j)}`),
-      'Total Travail', 'Total Repos/Congé',
-    ];
-
+    const headers = ['Collaborateur', 'Prénom', ...jours.map((j, i) => `${JOURS[i]} ${formatDisplay(j)}`), 'Travail', 'Repos/Congé'];
     const rows = collaborateurs.map(c => {
       const postes = jours.map(j => grille[c.id]?.[formatDate(j)] ?? 'R');
       const travail = postes.filter(p => ['M', 'AM', 'N'].includes(p)).length;
       const repos = postes.filter(p => ['R', 'C'].includes(p)).length;
       return [c.nom, c.prenom, ...postes, travail, repos];
     });
-
-    const summary = [
-      'TOTAL', '',
-      ...jours.map(j => {
-        const dateStr = formatDate(j);
-        const counts: Record<string, number> = { M: 0, AM: 0, N: 0, R: 0, C: 0 };
-        for (const c of collaborateurs) {
-          const p = grille[c.id]?.[dateStr] ?? 'R';
-          counts[p] = (counts[p] ?? 0) + 1;
-        }
-        return Object.entries(counts).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(' ');
-      }),
-      '', '',
-    ];
-
     const wsData = [
       [`PLANNING MARJANE TANGER — Rayon : ${rayonNom} — Semaine du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}`],
-      [],
-      headers,
-      ...rows,
-      [],
-      summary,
+      [], headers, ...rows,
     ];
-
     const ws = XLSX.utils.aoa_to_sheet(wsData);
-    ws['!cols'] = [
-      { wch: 18 }, { wch: 14 },
-      ...jours.map(() => ({ wch: 12 })),
-      { wch: 14 }, { wch: 14 },
-    ];
-
+    ws['!cols'] = [{ wch: 18 }, { wch: 14 }, ...jours.map(() => ({ wch: 12 })), { wch: 14 }, { wch: 14 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Planning');
-
-    const fileName = `planning_${rayonNom.toLowerCase().replace(/\s+/g, '_')}_${formatDate(semaine)}.xlsx`;
-    XLSX.writeFile(wb, fileName);
+    XLSX.writeFile(wb, `planning_${rayonNom.toLowerCase().replace(/\s+/g, '_')}_${formatDate(semaine)}.xlsx`);
   }
 
   const semaineLabel = `${formatDisplay(semaine)} – ${formatDisplay(addDays(semaine, 6))}`;
@@ -385,39 +376,66 @@ export default function Planning() {
 
         {rayonId && collaborateurs.length > 0 && (
           <div className="flex gap-2 flex-wrap">
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition"
-            >
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              {saved ? 'Sauvegardé ✓' : 'Sauvegarder'}
+            {!readOnly && (
+              <button onClick={handleSave} disabled={saving}
+                className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition">
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {saved ? 'Sauvegardé ✓' : 'Sauvegarder'}
+              </button>
+            )}
+            {(isChefRayon || isAdmin) && planningId && planningStatut === 'brouillon' && (
+              <button onClick={handleSoumettre} disabled={submitting}
+                className="flex items-center gap-2 bg-amber-500 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-amber-600 disabled:opacity-60 transition">
+                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                Soumettre
+              </button>
+            )}
+            {(isChefRayon || isAdmin) && planningStatut === 'rejete' && (
+              <button onClick={handleReprendreEnBrouillon} disabled={submitting}
+                className="flex items-center gap-2 bg-gray-500 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-600 disabled:opacity-60 transition">
+                Reprendre en brouillon
+              </button>
+            )}
+            <button onClick={handleExportPDF}
+              className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-emerald-700 transition">
+              <Printer className="w-4 h-4" /> PDF
             </button>
-            <button
-              onClick={handleExportPDF}
-              className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-emerald-700 transition"
-            >
-              <Printer className="w-4 h-4" />
-              PDF
-            </button>
-            <button
-              onClick={handleExportExcel}
-              className="flex items-center gap-2 bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-green-700 transition"
-            >
-              <FileText className="w-4 h-4" />
-              Excel
+            <button onClick={handleExportExcel}
+              className="flex items-center gap-2 bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-green-700 transition">
+              <FileText className="w-4 h-4" /> Excel
             </button>
           </div>
         )}
       </div>
 
+      {/* Statut du planning */}
+      {planningId && (
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className={`text-xs px-3 py-1.5 rounded-full font-medium ${STATUT_STYLE[planningStatut]}`}>
+            {STATUT_LABEL[planningStatut]}
+          </span>
+          {planningCommentaire && (
+            <span className="text-xs text-red-600 bg-red-50 px-3 py-1.5 rounded-full">
+              Motif rejet : {planningCommentaire}
+            </span>
+          )}
+          {readOnly && planningStatut === 'soumis' && (
+            <span className="text-xs text-gray-400">Planning en lecture seule — en attente de validation</span>
+          )}
+          {readOnly && planningStatut === 'valide' && (
+            <span className="text-xs text-gray-400">Planning validé — lecture seule</span>
+          )}
+        </div>
+      )}
+
+      {/* Légende */}
       <div className="flex flex-wrap gap-2">
         {POSTES.map(p => (
           <span key={p} className={`text-xs px-2 py-1 rounded-lg border font-medium ${POSTE_STYLE[p]}`}>
             {p} = {POSTE_LABEL[p]}
           </span>
         ))}
-        <span className="text-xs text-gray-400 self-center ml-2">Appuie sur une cellule pour changer</span>
+        {!readOnly && <span className="text-xs text-gray-400 self-center ml-2">Appuie sur une cellule pour changer</span>}
       </div>
 
       {!rayonId && (
@@ -468,7 +486,8 @@ export default function Planning() {
                         <td key={i} className="px-1 py-2 text-center">
                           <button
                             onClick={() => cyclePoste(c.id, dateStr)}
-                            className={`w-10 h-8 rounded-lg border font-bold text-xs transition hover:opacity-80 ${POSTE_STYLE[poste]}`}
+                            disabled={readOnly}
+                            className={`w-10 h-8 rounded-lg border font-bold text-xs transition ${POSTE_STYLE[poste]} ${readOnly ? 'cursor-default opacity-80' : 'hover:opacity-80'}`}
                           >
                             {poste}
                           </button>
