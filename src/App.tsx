@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, Menu, X, UserCog, LayoutGrid, Building2, User } from 'lucide-react';
+import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, Menu, X, UserCog, LayoutGrid, Building2, User, Bell } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import ImportCollaborateurs from './pages/ImportCollaborateurs';
@@ -13,6 +13,7 @@ import Rapports from './pages/Rapports';
 import Departements from './pages/Departements';
 import Profil from './pages/Profil';
 import { ROLE_LABELS, canAccessAdmin } from './types';
+import { useNotifications } from './hooks/useNotifications';
 
 function FullScreenMessage({ title, body, onSignOut }: { title: string; body: string; onSignOut: () => void }) {
   return (
@@ -34,6 +35,9 @@ function AppShell() {
   const [adminSection, setAdminSection] = useState<'menu' | 'collaborateurs' | 'utilisateurs' | 'rayons' | 'departements'>('menu');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+
+  const { rayonsSansPlanning, count: notifCount } = useNotifications(profile);
 
   if (!profile) return null;
 
@@ -53,6 +57,7 @@ function AppShell() {
     setActiveTab(id);
     setAdminSection('menu');
     setSidebarOpen(false);
+    setShowNotifications(false);
   }
 
   const adminTitle: Record<typeof adminSection, string> = {
@@ -96,7 +101,12 @@ function AppShell() {
                 }`}
               >
                 <Icon className="w-5 h-5 shrink-0" />
-                {item.label}
+                <span className="flex-1">{item.label}</span>
+                {item.id === 'planning' && notifCount > 0 && (
+                  <span className="w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold shrink-0">
+                    {notifCount > 9 ? '9+' : notifCount}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -135,7 +145,57 @@ function AppShell() {
 
       {showImport && <ImportCollaborateurs onClose={() => setShowImport(false)} />}
 
-      <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:w-72 lg:flex lg:flex-col bg-white border-r border-gray-200 shadow-xl z-50">
+      {/* Panneau notifications */}
+      {showNotifications && (
+        <div className="fixed inset-0 z-50 flex">
+          <div className="absolute inset-0 bg-black/20" onClick={() => setShowNotifications(false)} />
+          <div className="absolute right-4 top-16 lg:top-20 w-80 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <Bell className="w-4 h-4 text-gray-600" />
+                <span className="font-semibold text-sm">Rayons sans planning</span>
+              </div>
+              <button onClick={() => setShowNotifications(false)} className="p-1 hover:bg-gray-100 rounded-lg">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            {rayonsSansPlanning.length === 0 ? (
+              <div className="p-6 text-center">
+                <div className="text-2xl mb-2">✅</div>
+                <p className="text-sm text-gray-500">Tous les rayons sont planifiés cette semaine.</p>
+              </div>
+            ) : (
+              <div className="max-h-80 overflow-y-auto divide-y divide-gray-50">
+                {rayonsSansPlanning.map(r => (
+                  <div key={r.id} className="px-4 py-3 hover:bg-gray-50">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium text-sm text-gray-900">{r.nom}</p>
+                        <p className="text-xs text-gray-400">{r.depNom} · {r.nb_collaborateurs} collab.</p>
+                      </div>
+                      <span className="text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded-full font-medium">
+                        En retard
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {rayonsSansPlanning.length > 0 && (
+              <div className="px-4 py-3 border-t border-gray-100 bg-gray-50">
+                <button
+                  onClick={() => { handleNav('planning'); }}
+                  className="w-full text-sm text-blue-600 font-medium text-center hover:text-blue-700"
+                >
+                  Aller au Planning →
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:w-72 lg:flex lg:flex-col bg-white border-r border-gray-200 shadow-xl z-40">
         <Sidebar />
       </div>
 
@@ -156,30 +216,74 @@ function AppShell() {
           <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-xl hover:bg-gray-100">
             <Menu className="w-5 h-5" />
           </button>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-1">
             <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">P</div>
             <span className="font-semibold text-gray-900">Planning</span>
           </div>
+          <button
+            onClick={() => setShowNotifications(v => !v)}
+            className="relative p-2 rounded-xl hover:bg-gray-100"
+          >
+            <Bell className="w-5 h-5 text-gray-600" />
+            {notifCount > 0 && (
+              <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
+                {notifCount > 9 ? '9+' : notifCount}
+              </span>
+            )}
+          </button>
         </div>
 
         <div className="p-4 lg:p-8">
           <header className="mb-6 lg:mb-8">
-            <div className="flex items-center gap-2">
-              {activeTab === 'admin' && adminSection !== 'menu' && (
-                <button
-                  onClick={() => setAdminSection('menu')}
-                  className="p-2 hover:bg-gray-100 rounded-xl text-gray-500 text-lg"
-                >
-                  ←
-                </button>
-              )}
-              <div>
-                <h2 className="text-2xl lg:text-3xl font-bold text-gray-900">
-                  {pageTitle[activeTab]}
-                </h2>
-                <p className="text-gray-500 mt-1 text-sm">Bienvenue, {fullName}</p>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {activeTab === 'admin' && adminSection !== 'menu' && (
+                  <button
+                    onClick={() => setAdminSection('menu')}
+                    className="p-2 hover:bg-gray-100 rounded-xl text-gray-500 text-lg"
+                  >
+                    ←
+                  </button>
+                )}
+                <div>
+                  <h2 className="text-2xl lg:text-3xl font-bold text-gray-900">
+                    {pageTitle[activeTab]}
+                  </h2>
+                  <p className="text-gray-500 mt-1 text-sm">Bienvenue, {fullName}</p>
+                </div>
               </div>
+
+              {/* Cloche desktop */}
+              <button
+                onClick={() => setShowNotifications(v => !v)}
+                className="hidden lg:flex relative p-3 rounded-xl hover:bg-gray-100 transition"
+              >
+                <Bell className="w-5 h-5 text-gray-600" />
+                {notifCount > 0 && (
+                  <span className="absolute top-1.5 right-1.5 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
+                    {notifCount > 9 ? '9+' : notifCount}
+                  </span>
+                )}
+              </button>
             </div>
+
+            {/* Bandeau alerte si retards */}
+            {notifCount > 0 && (activeTab === 'dashboard' || activeTab === 'planning') && (
+              <div className="mt-3 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-amber-600">⚠️</span>
+                  <span className="text-sm text-amber-800 font-medium">
+                    {notifCount} rayon{notifCount > 1 ? 's' : ''} sans planning cette semaine
+                  </span>
+                </div>
+                <button
+                  onClick={() => setShowNotifications(true)}
+                  className="text-xs text-amber-700 font-medium hover:text-amber-900"
+                >
+                  Voir →
+                </button>
+              </div>
+            )}
           </header>
 
           {activeTab === 'dashboard' && <Dashboard />}
@@ -192,42 +296,32 @@ function AppShell() {
             <>
               {adminSection === 'menu' && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <button
-                    onClick={() => setAdminSection('utilisateurs')}
-                    className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left"
-                  >
+                  <button onClick={() => setAdminSection('utilisateurs')}
+                    className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
                     <UserCog className="w-8 h-8 mb-3 text-purple-600" />
                     <div className="font-semibold">Utilisateurs</div>
                     <div className="text-xs text-gray-500 mt-1">Créer et gérer les comptes</div>
                   </button>
-                  <button
-                    onClick={() => setAdminSection('collaborateurs')}
-                    className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left"
-                  >
+                  <button onClick={() => setAdminSection('collaborateurs')}
+                    className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
                     <Users className="w-8 h-8 mb-3 text-blue-600" />
                     <div className="font-semibold">Collaborateurs</div>
                     <div className="text-xs text-gray-500 mt-1">Ajouter, modifier, supprimer</div>
                   </button>
-                  <button
-                    onClick={() => setShowImport(true)}
-                    className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left"
-                  >
+                  <button onClick={() => setShowImport(true)}
+                    className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
                     <FileText className="w-8 h-8 mb-3 text-emerald-600" />
                     <div className="font-semibold">Import Excel</div>
                     <div className="text-xs text-gray-500 mt-1">Importer depuis un fichier .xlsx</div>
                   </button>
-                  <button
-                    onClick={() => setAdminSection('rayons')}
-                    className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left"
-                  >
+                  <button onClick={() => setAdminSection('rayons')}
+                    className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
                     <Settings className="w-8 h-8 mb-3 text-amber-600" />
                     <div className="font-semibold">Rayons</div>
                     <div className="text-xs text-gray-500 mt-1">Gérer les rayons</div>
                   </button>
-                  <button
-                    onClick={() => setAdminSection('departements')}
-                    className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left"
-                  >
+                  <button onClick={() => setAdminSection('departements')}
+                    className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
                     <Building2 className="w-8 h-8 mb-3 text-purple-600" />
                     <div className="font-semibold">Départements</div>
                     <div className="text-xs text-gray-500 mt-1">Gérer les départements</div>
