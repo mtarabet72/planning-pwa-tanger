@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import type { Profile } from '../types';
-import { canAccessAdmin } from '../types';
 
 export interface RayonSansPlanning {
   id: string;
@@ -35,10 +34,8 @@ export function useNotifications(profile: Profile | null) {
     setLoading(true);
 
     const semaine = getLundi(new Date());
-    const isAdmin = canAccessAdmin(profile.role);
     const isChefDep = profile.role === 'chef_departement';
 
-    // Récupérer les rayons du périmètre
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rayQuery: any = supabase
       .from('rayons')
@@ -55,7 +52,6 @@ export function useNotifications(profile: Profile | null) {
     const { data: rayons } = await rayQuery;
     if (!rayons?.length) { setRayonsSansPlanning([]); setLoading(false); return; }
 
-    // Récupérer les plannings existants cette semaine
     const { data: plannings } = await supabase
       .from('plannings')
       .select('rayon_id')
@@ -63,7 +59,6 @@ export function useNotifications(profile: Profile | null) {
 
     const planifiesIds = new Set((plannings ?? []).map((p: { rayon_id: string }) => p.rayon_id));
 
-    // Récupérer nb collaborateurs par rayon
     const { data: cols } = await supabase
       .from('collaborateurs')
       .select('rayon_id')
@@ -77,7 +72,7 @@ export function useNotifications(profile: Profile | null) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const retard: RayonSansPlanning[] = (rayons as any[])
       .filter(r => !planifiesIds.has(r.id))
-      .filter(r => (colMap[r.id] ?? 0) > 0) // ignorer les rayons sans collaborateurs
+      .filter(r => (colMap[r.id] ?? 0) > 0)
       .map(r => ({
         id: r.id,
         nom: r.nom,
