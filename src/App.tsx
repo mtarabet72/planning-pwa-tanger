@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, Menu, X, UserCog, LayoutGrid, Building2, User, Bell, ClipboardCheck } from 'lucide-react';
+import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, Menu, X, UserCog, LayoutGrid, Building2, User, Bell, ClipboardCheck, History } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import ImportCollaborateurs from './pages/ImportCollaborateurs';
@@ -13,6 +13,7 @@ import Rapports from './pages/Rapports';
 import Departements from './pages/Departements';
 import Profil from './pages/Profil';
 import Validation from './pages/Validation';
+import Historique from './pages/Historique';
 import { ROLE_LABELS, canAccessAdmin } from './types';
 import { useNotifications } from './hooks/useNotifications';
 
@@ -32,7 +33,7 @@ function FullScreenMessage({ title, body, onSignOut }: { title: string; body: st
 
 function AppShell() {
   const { profile, signOut } = useAuth();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'planning' | 'validation' | 'consolidation' | 'admin' | 'reports' | 'profil'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'planning' | 'validation' | 'historique' | 'consolidation' | 'admin' | 'reports' | 'profil'>('dashboard');
   const [adminSection, setAdminSection] = useState<'menu' | 'collaborateurs' | 'utilisateurs' | 'rayons' | 'departements'>('menu');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -50,6 +51,7 @@ function AppShell() {
     { id: 'dashboard', label: 'Tableau de Bord', icon: BarChart3 },
     { id: 'planning', label: 'Planning', icon: Calendar },
     { id: 'validation', label: 'Validation', icon: ClipboardCheck },
+    { id: 'historique', label: 'Historique', icon: History },
     { id: 'consolidation', label: 'Consolidation', icon: LayoutGrid, depOnly: true },
     { id: 'admin', label: 'Administration', icon: Users, adminOnly: true },
     { id: 'reports', label: 'Rapports', icon: FileText },
@@ -74,6 +76,7 @@ function AppShell() {
     dashboard: 'Tableau de Bord',
     planning: 'Planning Hebdomadaire',
     validation: 'Validation des Plannings',
+    historique: 'Historique des Plannings',
     consolidation: 'Consolidation Département',
     admin: adminTitle[adminSection],
     reports: 'Rapports',
@@ -129,10 +132,8 @@ function AppShell() {
               <p className="text-xs text-gray-500">{ROLE_LABELS[profile.role]}</p>
             </div>
           </button>
-          <button
-            onClick={() => void signOut()}
-            className="w-full flex items-center justify-center gap-2 text-red-600 hover:bg-red-50 py-2 rounded-xl text-sm font-medium"
-          >
+          <button onClick={() => void signOut()}
+            className="w-full flex items-center justify-center gap-2 text-red-600 hover:bg-red-50 py-2 rounded-xl text-sm font-medium">
             <LogOut className="w-4 h-4" />
             Déconnexion
           </button>
@@ -146,7 +147,6 @@ function AppShell() {
 
       {showImport && <ImportCollaborateurs onClose={() => setShowImport(false)} />}
 
-      {/* Panneau notifications */}
       {showNotifications && (
         <div className="fixed inset-0 z-50 flex">
           <div className="absolute inset-0 bg-black/20" onClick={() => setShowNotifications(false)} />
@@ -263,6 +263,7 @@ function AppShell() {
           {activeTab === 'dashboard' && <Dashboard />}
           {activeTab === 'planning' && <Planning />}
           {activeTab === 'validation' && <Validation />}
+          {activeTab === 'historique' && <Historique />}
           {activeTab === 'consolidation' && (isAdmin || isChefDep) && <Consolidation />}
           {activeTab === 'reports' && <Rapports />}
           {activeTab === 'profil' && <Profil />}
