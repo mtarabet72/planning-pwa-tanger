@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, Menu, X, UserCog, LayoutGrid, Building2, User, Bell } from 'lucide-react';
+import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, Menu, X, UserCog, LayoutGrid, Building2, User, Bell, ClipboardCheck } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import ImportCollaborateurs from './pages/ImportCollaborateurs';
@@ -12,6 +12,7 @@ import Rayons from './pages/Rayons';
 import Rapports from './pages/Rapports';
 import Departements from './pages/Departements';
 import Profil from './pages/Profil';
+import Validation from './pages/Validation';
 import { ROLE_LABELS, canAccessAdmin } from './types';
 import { useNotifications } from './hooks/useNotifications';
 
@@ -31,7 +32,7 @@ function FullScreenMessage({ title, body, onSignOut }: { title: string; body: st
 
 function AppShell() {
   const { profile, signOut } = useAuth();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'planning' | 'consolidation' | 'admin' | 'reports' | 'profil'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'planning' | 'validation' | 'consolidation' | 'admin' | 'reports' | 'profil'>('dashboard');
   const [adminSection, setAdminSection] = useState<'menu' | 'collaborateurs' | 'utilisateurs' | 'rayons' | 'departements'>('menu');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -48,6 +49,7 @@ function AppShell() {
   const menuItems = [
     { id: 'dashboard', label: 'Tableau de Bord', icon: BarChart3 },
     { id: 'planning', label: 'Planning', icon: Calendar },
+    { id: 'validation', label: 'Validation', icon: ClipboardCheck },
     { id: 'consolidation', label: 'Consolidation', icon: LayoutGrid, depOnly: true },
     { id: 'admin', label: 'Administration', icon: Users, adminOnly: true },
     { id: 'reports', label: 'Rapports', icon: FileText },
@@ -71,6 +73,7 @@ function AppShell() {
   const pageTitle: Record<typeof activeTab, string> = {
     dashboard: 'Tableau de Bord',
     planning: 'Planning Hebdomadaire',
+    validation: 'Validation des Plannings',
     consolidation: 'Consolidation Département',
     admin: adminTitle[adminSection],
     reports: 'Rapports',
@@ -116,9 +119,7 @@ function AppShell() {
         <div className="bg-gray-50 p-4 rounded-2xl">
           <button
             onClick={() => handleNav('profil')}
-            className={`w-full flex items-center gap-3 mb-3 p-2 rounded-xl transition ${
-              activeTab === 'profil' ? 'bg-blue-50' : 'hover:bg-gray-100'
-            }`}
+            className={`w-full flex items-center gap-3 mb-3 p-2 rounded-xl transition ${activeTab === 'profil' ? 'bg-blue-50' : 'hover:bg-gray-100'}`}
           >
             <div className="w-9 h-9 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600 shrink-0">
               <User className="w-4 h-4" />
@@ -173,9 +174,7 @@ function AppShell() {
                         <p className="font-medium text-sm text-gray-900">{r.nom}</p>
                         <p className="text-xs text-gray-400">{r.depNom} · {r.nb_collaborateurs} collab.</p>
                       </div>
-                      <span className="text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded-full font-medium">
-                        En retard
-                      </span>
+                      <span className="text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded-full font-medium">En retard</span>
                     </div>
                   </div>
                 ))}
@@ -183,10 +182,7 @@ function AppShell() {
             )}
             {rayonsSansPlanning.length > 0 && (
               <div className="px-4 py-3 border-t border-gray-100 bg-gray-50">
-                <button
-                  onClick={() => { handleNav('planning'); }}
-                  className="w-full text-sm text-blue-600 font-medium text-center hover:text-blue-700"
-                >
+                <button onClick={() => handleNav('planning')} className="w-full text-sm text-blue-600 font-medium text-center hover:text-blue-700">
                   Aller au Planning →
                 </button>
               </div>
@@ -220,10 +216,7 @@ function AppShell() {
             <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">P</div>
             <span className="font-semibold text-gray-900">Planning</span>
           </div>
-          <button
-            onClick={() => setShowNotifications(v => !v)}
-            className="relative p-2 rounded-xl hover:bg-gray-100"
-          >
+          <button onClick={() => setShowNotifications(v => !v)} className="relative p-2 rounded-xl hover:bg-gray-100">
             <Bell className="w-5 h-5 text-gray-600" />
             {notifCount > 0 && (
               <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
@@ -238,26 +231,14 @@ function AppShell() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 {activeTab === 'admin' && adminSection !== 'menu' && (
-                  <button
-                    onClick={() => setAdminSection('menu')}
-                    className="p-2 hover:bg-gray-100 rounded-xl text-gray-500 text-lg"
-                  >
-                    ←
-                  </button>
+                  <button onClick={() => setAdminSection('menu')} className="p-2 hover:bg-gray-100 rounded-xl text-gray-500 text-lg">←</button>
                 )}
                 <div>
-                  <h2 className="text-2xl lg:text-3xl font-bold text-gray-900">
-                    {pageTitle[activeTab]}
-                  </h2>
+                  <h2 className="text-2xl lg:text-3xl font-bold text-gray-900">{pageTitle[activeTab]}</h2>
                   <p className="text-gray-500 mt-1 text-sm">Bienvenue, {fullName}</p>
                 </div>
               </div>
-
-              {/* Cloche desktop */}
-              <button
-                onClick={() => setShowNotifications(v => !v)}
-                className="hidden lg:flex relative p-3 rounded-xl hover:bg-gray-100 transition"
-              >
+              <button onClick={() => setShowNotifications(v => !v)} className="hidden lg:flex relative p-3 rounded-xl hover:bg-gray-100 transition">
                 <Bell className="w-5 h-5 text-gray-600" />
                 {notifCount > 0 && (
                   <span className="absolute top-1.5 right-1.5 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
@@ -266,8 +247,6 @@ function AppShell() {
                 )}
               </button>
             </div>
-
-            {/* Bandeau alerte si retards */}
             {notifCount > 0 && (activeTab === 'dashboard' || activeTab === 'planning') && (
               <div className="mt-3 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -276,18 +255,14 @@ function AppShell() {
                     {notifCount} rayon{notifCount > 1 ? 's' : ''} sans planning cette semaine
                   </span>
                 </div>
-                <button
-                  onClick={() => setShowNotifications(true)}
-                  className="text-xs text-amber-700 font-medium hover:text-amber-900"
-                >
-                  Voir →
-                </button>
+                <button onClick={() => setShowNotifications(true)} className="text-xs text-amber-700 font-medium hover:text-amber-900">Voir →</button>
               </div>
             )}
           </header>
 
           {activeTab === 'dashboard' && <Dashboard />}
           {activeTab === 'planning' && <Planning />}
+          {activeTab === 'validation' && <Validation />}
           {activeTab === 'consolidation' && (isAdmin || isChefDep) && <Consolidation />}
           {activeTab === 'reports' && <Rapports />}
           {activeTab === 'profil' && <Profil />}
@@ -296,32 +271,27 @@ function AppShell() {
             <>
               {adminSection === 'menu' && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <button onClick={() => setAdminSection('utilisateurs')}
-                    className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
+                  <button onClick={() => setAdminSection('utilisateurs')} className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
                     <UserCog className="w-8 h-8 mb-3 text-purple-600" />
                     <div className="font-semibold">Utilisateurs</div>
                     <div className="text-xs text-gray-500 mt-1">Créer et gérer les comptes</div>
                   </button>
-                  <button onClick={() => setAdminSection('collaborateurs')}
-                    className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
+                  <button onClick={() => setAdminSection('collaborateurs')} className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
                     <Users className="w-8 h-8 mb-3 text-blue-600" />
                     <div className="font-semibold">Collaborateurs</div>
                     <div className="text-xs text-gray-500 mt-1">Ajouter, modifier, supprimer</div>
                   </button>
-                  <button onClick={() => setShowImport(true)}
-                    className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
+                  <button onClick={() => setShowImport(true)} className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
                     <FileText className="w-8 h-8 mb-3 text-emerald-600" />
                     <div className="font-semibold">Import Excel</div>
                     <div className="text-xs text-gray-500 mt-1">Importer depuis un fichier .xlsx</div>
                   </button>
-                  <button onClick={() => setAdminSection('rayons')}
-                    className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
+                  <button onClick={() => setAdminSection('rayons')} className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
                     <Settings className="w-8 h-8 mb-3 text-amber-600" />
                     <div className="font-semibold">Rayons</div>
                     <div className="text-xs text-gray-500 mt-1">Gérer les rayons</div>
                   </button>
-                  <button onClick={() => setAdminSection('departements')}
-                    className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
+                  <button onClick={() => setAdminSection('departements')} className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
                     <Building2 className="w-8 h-8 mb-3 text-purple-600" />
                     <div className="font-semibold">Départements</div>
                     <div className="text-xs text-gray-500 mt-1">Gérer les départements</div>
