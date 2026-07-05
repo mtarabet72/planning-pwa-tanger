@@ -73,12 +73,10 @@ export default function Validation() {
   const [semaine, setSemaine] = useState<Date>(getLundi(new Date()));
   const [plannings, setPlannings] = useState<PlanningItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [actionId, setActionId] = useState<string | null>(null);
   const [commentaire, setCommentaire] = useState('');
   const [showRejet, setShowRejet] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
 
-  const jours = Array.from({ length: 7 }, (_, i) => addDays(semaine, i));
   const semaineLabel = `${formatDisplay(semaine)} – ${formatDisplay(addDays(semaine, 6))}`;
 
   useEffect(() => { loadPlannings(); }, [semaine]);
@@ -97,9 +95,9 @@ export default function Validation() {
     if (isChefRayon && profile?.rayon_id) {
       query = query.eq('rayon_id', profile.rayon_id);
     } else if (isChefDep && profile?.departement_id) {
-      query = query.in('rayon_id',
-        (await supabase.from('rayons').select('id').eq('departement_id', profile.departement_id)).data?.map((r: { id: string }) => r.id) ?? []
-      );
+      const { data: rays } = await supabase
+        .from('rayons').select('id').eq('departement_id', profile.departement_id);
+      query = query.in('rayon_id', (rays ?? []).map((r: { id: string }) => r.id));
     }
 
     const { data } = await query;
@@ -169,15 +167,14 @@ export default function Validation() {
 
   const stats = {
     brouillon: plannings.filter(p => p.statut === 'brouillon').length,
-    soumis: plannings.filter(p => p.statut === 'soumis').length,
-    valide: plannings.filter(p => p.statut === 'valide').length,
-    rejete: plannings.filter(p => p.statut === 'rejete').length,
+    soumis:    plannings.filter(p => p.statut === 'soumis').length,
+    valide:    plannings.filter(p => p.statut === 'valide').length,
+    rejete:    plannings.filter(p => p.statut === 'rejete').length,
   };
 
   return (
     <div className="space-y-4">
 
-      {/* Navigation semaine */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2">
           <button onClick={() => setSemaine(d => getLundi(addDays(d, -7)))} className="p-1 hover:bg-gray-100 rounded-lg">
@@ -190,7 +187,6 @@ export default function Validation() {
         </div>
       </div>
 
-      {/* Stats */}
       {plannings.length > 0 && (
         <div className="grid grid-cols-4 gap-3">
           {(Object.entries(stats) as [Statut, number][]).map(([statut, nb]) => {
@@ -239,73 +235,44 @@ export default function Validation() {
                   </div>
                 </div>
 
-                {/* Actions selon rôle et statut */}
                 <div className="flex gap-2 mt-3 flex-wrap">
-
-                  {/* Chef de Rayon */}
                   {isChefRayon && p.statut === 'brouillon' && (
-                    <button
-                      onClick={() => handleSoumettre(p.id)}
-                      disabled={processing}
-                      className="flex items-center gap-1.5 bg-amber-500 text-white px-4 py-2 rounded-xl text-xs font-medium hover:bg-amber-600 disabled:opacity-60 transition"
-                    >
-                      <Send className="w-3.5 h-3.5" />
-                      Soumettre pour validation
+                    <button onClick={() => handleSoumettre(p.id)} disabled={processing}
+                      className="flex items-center gap-1.5 bg-amber-500 text-white px-4 py-2 rounded-xl text-xs font-medium hover:bg-amber-600 disabled:opacity-60 transition">
+                      <Send className="w-3.5 h-3.5" /> Soumettre pour validation
                     </button>
                   )}
-
                   {isChefRayon && p.statut === 'rejete' && (
-                    <button
-                      onClick={() => handleReprendreEnBrouillon(p.id)}
-                      disabled={processing}
-                      className="flex items-center gap-1.5 bg-gray-500 text-white px-4 py-2 rounded-xl text-xs font-medium hover:bg-gray-600 disabled:opacity-60 transition"
-                    >
+                    <button onClick={() => handleReprendreEnBrouillon(p.id)} disabled={processing}
+                      className="flex items-center gap-1.5 bg-gray-500 text-white px-4 py-2 rounded-xl text-xs font-medium hover:bg-gray-600 disabled:opacity-60 transition">
                       Reprendre en brouillon
                     </button>
                   )}
-
-                  {/* Chef de Département / Admin */}
                   {(isChefDep || isAdmin) && p.statut === 'soumis' && (
                     <>
-                      <button
-                        onClick={() => handleValider(p.id)}
-                        disabled={processing}
-                        className="flex items-center gap-1.5 bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-medium hover:bg-emerald-700 disabled:opacity-60 transition"
-                      >
-                        <CheckCircle className="w-3.5 h-3.5" />
-                        Valider
+                      <button onClick={() => handleValider(p.id)} disabled={processing}
+                        className="flex items-center gap-1.5 bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-medium hover:bg-emerald-700 disabled:opacity-60 transition">
+                        <CheckCircle className="w-3.5 h-3.5" /> Valider
                       </button>
-                      <button
-                        onClick={() => setShowRejet(p.id)}
-                        disabled={processing}
-                        className="flex items-center gap-1.5 bg-red-500 text-white px-4 py-2 rounded-xl text-xs font-medium hover:bg-red-600 disabled:opacity-60 transition"
-                      >
-                        <XCircle className="w-3.5 h-3.5" />
-                        Rejeter
+                      <button onClick={() => setShowRejet(p.id)} disabled={processing}
+                        className="flex items-center gap-1.5 bg-red-500 text-white px-4 py-2 rounded-xl text-xs font-medium hover:bg-red-600 disabled:opacity-60 transition">
+                        <XCircle className="w-3.5 h-3.5" /> Rejeter
                       </button>
                     </>
                   )}
-
-                  {/* Admin peut tout faire */}
                   {isAdmin && p.statut === 'valide' && (
                     <span className="text-xs text-emerald-600 font-medium flex items-center gap-1">
                       <CheckCircle className="w-3.5 h-3.5" /> Planning approuvé
                     </span>
                   )}
-
                   {isAdmin && p.statut === 'brouillon' && (
-                    <button
-                      onClick={() => handleSoumettre(p.id)}
-                      disabled={processing}
-                      className="flex items-center gap-1.5 bg-amber-500 text-white px-4 py-2 rounded-xl text-xs font-medium hover:bg-amber-600 disabled:opacity-60 transition"
-                    >
-                      <Send className="w-3.5 h-3.5" />
-                      Soumettre
+                    <button onClick={() => handleSoumettre(p.id)} disabled={processing}
+                      className="flex items-center gap-1.5 bg-amber-500 text-white px-4 py-2 rounded-xl text-xs font-medium hover:bg-amber-600 disabled:opacity-60 transition">
+                      <Send className="w-3.5 h-3.5" /> Soumettre
                     </button>
                   )}
                 </div>
 
-                {/* Modal rejet */}
                 {showRejet === p.id && (
                   <div className="mt-3 space-y-2">
                     <textarea
@@ -316,17 +283,12 @@ export default function Validation() {
                       className="w-full px-3 py-2 rounded-xl border border-red-200 text-sm focus:outline-none focus:ring-2 focus:ring-red-400 resize-none"
                     />
                     <div className="flex gap-2">
-                      <button
-                        onClick={() => { setShowRejet(null); setCommentaire(''); }}
-                        className="flex-1 py-2 rounded-xl border border-gray-200 text-gray-600 text-xs font-medium"
-                      >
+                      <button onClick={() => { setShowRejet(null); setCommentaire(''); }}
+                        className="flex-1 py-2 rounded-xl border border-gray-200 text-gray-600 text-xs font-medium">
                         Annuler
                       </button>
-                      <button
-                        onClick={() => handleRejeter(p.id)}
-                        disabled={!commentaire.trim() || processing}
-                        className="flex-1 py-2 rounded-xl bg-red-500 text-white text-xs font-medium hover:bg-red-600 disabled:opacity-60"
-                      >
+                      <button onClick={() => handleRejeter(p.id)} disabled={!commentaire.trim() || processing}
+                        className="flex-1 py-2 rounded-xl bg-red-500 text-white text-xs font-medium hover:bg-red-600 disabled:opacity-60">
                         Confirmer le rejet
                       </button>
                     </div>
