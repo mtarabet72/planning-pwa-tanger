@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, Menu, X, UserCog, LayoutGrid, Building2, User, Bell, ClipboardCheck, History, MoreHorizontal } from 'lucide-react';
+import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, X, UserCog, LayoutGrid, Building2, User, Bell, ClipboardCheck, History, MoreHorizontal } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import ImportCollaborateurs from './pages/ImportCollaborateurs';
