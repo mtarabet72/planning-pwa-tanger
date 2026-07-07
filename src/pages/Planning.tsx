@@ -6,7 +6,7 @@ import { canAccessAdmin } from '../types';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 
-type Poste = 'M' | 'AM' | 'N' | 'R' | 'C';
+type Poste = 'M' | 'T' | 'S' | 'R' | 'C';
 type Statut = 'brouillon' | 'soumis' | 'valide' | 'rejete';
 
 const POSTES: Poste[] = ['M', 'AM', 'N', 'R', 'C'];
@@ -20,7 +20,7 @@ const POSTE_STYLE: Record<Poste, string> = {
 };
 
 const POSTE_LABEL: Record<Poste, string> = {
-  M: 'Matin', AM: 'Après-midi', N: 'Nuit', R: 'Repos', C: 'Congé',
+  M: 'Matin', T: 'Tanche', S: 'Soir', R: 'Repos', C: 'Congé',
 };
 
 const POSTE_FILL: Record<Poste, [number, number, number]> = {
@@ -286,7 +286,7 @@ export default function Planning() {
     jours.forEach((_, i) => doc.line(margin + nameColW + i * colW, 28, margin + nameColW + i * colW, y));
     y += 5;
     doc.setFontSize(7); doc.setFont('helvetica', 'normal'); doc.setTextColor(100, 100, 100);
-    doc.text('M = Matin  |  AM = Après-midi  |  N = Nuit  |  R = Repos  |  C = Congé', margin, y);
+    doc.text('M = Matin  |  T = Tranche  |  S = Soir  |  R = Repos  |  C = Congé', margin, y);
     doc.setTextColor(180, 180, 180);
     doc.text(`Imprimé le ${new Date().toLocaleDateString('fr-FR')}`, pageW - margin, y, { align: 'right' });
     doc.save(`planning_${rayonNom.toLowerCase().replace(/\s+/g, '_')}_${formatDate(semaine)}.pdf`);
@@ -296,7 +296,7 @@ export default function Planning() {
     const headers = ['Collaborateur', 'Prénom', ...jours.map((j, i) => `${JOURS[i]} ${formatDisplay(j)}`), 'Travail', 'Repos/Congé'];
     const rows = collaborateurs.map(c => {
       const postes = jours.map(j => grille[c.id]?.[formatDate(j)] ?? 'R');
-      const travail = postes.filter(p => ['M', 'AM', 'N'].includes(p)).length;
+      const travail = postes.filter(p => ['M', 'T', 'S'].includes(p)).length;
       const repos = postes.filter(p => ['R', 'C'].includes(p)).length;
       return [c.nom, c.prenom, ...postes, travail, repos];
     });
