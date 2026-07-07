@@ -9,24 +9,24 @@ import * as XLSX from 'xlsx';
 type Poste = 'M' | 'T' | 'S' | 'R' | 'C';
 type Statut = 'brouillon' | 'soumis' | 'valide' | 'rejete';
 
-const POSTES: Poste[] = ['M', 'AM', 'N', 'R', 'C'];
+const POSTES: Poste[] = ['M', 'T', 'S', 'R', 'C'];
 
 const POSTE_STYLE: Record<Poste, string> = {
-  M:  'bg-amber-100 text-amber-800 border-amber-300',
-  AM: 'bg-blue-100 text-blue-800 border-blue-300',
-  N:  'bg-indigo-100 text-indigo-800 border-indigo-300',
-  R:  'bg-gray-100 text-gray-500 border-gray-300',
-  C:  'bg-emerald-100 text-emerald-800 border-emerald-300',
+  M: 'bg-amber-100 text-amber-800 border-amber-300',
+  T: 'bg-blue-100 text-blue-800 border-blue-300',
+  S: 'bg-indigo-100 text-indigo-800 border-indigo-300',
+  R: 'bg-gray-100 text-gray-500 border-gray-300',
+  C: 'bg-emerald-100 text-emerald-800 border-emerald-300',
 };
 
 const POSTE_LABEL: Record<Poste, string> = {
-  M: 'Matin', T: 'Tanche', S: 'Soir', R: 'Repos', C: 'Congé',
+  M: 'Matin', T: 'Tranche', S: 'Soir', R: 'Repos', C: 'Congé',
 };
 
 const POSTE_FILL: Record<Poste, [number, number, number]> = {
   M:  [254, 243, 199],
-  AM: [219, 234, 254],
-  N:  [224, 231, 255],
+  T:  [219, 234, 254],
+  S:  [224, 231, 255],
   R:  [243, 244, 246],
   C:  [209, 250, 229],
 };
@@ -78,6 +78,14 @@ function formatDisplayLong(date: Date): string {
   return date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
 }
 
+function getNumeroSemaine(date: Date): number {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 3 - (d.getDay() + 6) % 7);
+  const week1 = new Date(d.getFullYear(), 0, 4);
+  return 1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+}
+
 interface Collaborateur {
   id: string;
   nom: string;
@@ -87,6 +95,7 @@ interface Collaborateur {
 interface Rayon {
   id: string;
   nom: string;
+  numero: string | null;
   departement_id: string;
   departements?: { nom: string };
 }
@@ -113,19 +122,19 @@ export default function Planning() {
   const [saved, setSaved] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Swipe
   const touchStartX = useRef<number>(0);
   const touchEndX = useRef<number>(0);
 
   const jours = Array.from({ length: 7 }, (_, i) => addDays(semaine, i));
   const readOnly = planningStatut === 'soumis' || planningStatut === 'valide';
+  const numSemaine = getNumeroSemaine(semaine);
 
   useEffect(() => { loadRayons(); }, []);
   useEffect(() => { if (rayonId) loadPlanning(); }, [rayonId, semaine]);
 
   async function loadRayons() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let query: any = supabase.from('rayons').select('*, departements(nom)').order('nom');
+    let query: any = supabase.from('rayons').select('id, nom, numero, departement_id, departements(nom)').order('nom');
     if (profile?.role === 'chef_rayon' && profile.rayon_id) {
       query = query.eq('id', profile.rayon_id);
     } else if (isChefDep && profile?.departement_id) {
@@ -243,13 +252,15 @@ export default function Planning() {
     const pageW = 297; const margin = 14;
     const nameColW = 45;
     const colW = (pageW - margin * 2 - nameColW) / 7;
+
     doc.setFillColor(37, 99, 235);
     doc.rect(0, 0, pageW, 24, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(15); doc.setFont('helvetica', 'bold');
     doc.text('PLANNING MARJANE TANGER', margin, 11);
     doc.setFontSize(8); doc.setFont('helvetica', 'normal');
-    doc.text(`Rayon : ${rayonNom}${depNom ? '  |  Département : ' + depNom : ''}  |  Semaine du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}`, margin, 19);
+    doc.text(`Rayon : ${rayonNom}${depNom ? '  |  Dép. : ' + depNom : ''}  |  S${numSemaine} — du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}`, margin, 19);
+
     let y = 28;
     const headerH = 9;
     doc.setFillColor(240, 242, 255);
@@ -263,6 +274,7 @@ export default function Planning() {
       doc.text(`${JOURS[i]} ${formatDisplay(j)}`, x + colW / 2, y + 6, { align: 'center' });
     });
     y += headerH;
+
     const rowH = 10;
     collaborateurs.forEach((c, idx) => {
       const bg: [number, number, number] = idx % 2 === 0 ? [255, 255, 255] : [249, 250, 251];
@@ -286,10 +298,10 @@ export default function Planning() {
     jours.forEach((_, i) => doc.line(margin + nameColW + i * colW, 28, margin + nameColW + i * colW, y));
     y += 5;
     doc.setFontSize(7); doc.setFont('helvetica', 'normal'); doc.setTextColor(100, 100, 100);
-    doc.text('M = Matin  |  T = Tranche  |  S = Soir  |  R = Repos  |  C = Congé', margin, y);
+    doc.text('M = Matin   |   T = Tranche   |   S = Soir   |   R = Repos   |   C = Congé', margin, y);
     doc.setTextColor(180, 180, 180);
     doc.text(`Imprimé le ${new Date().toLocaleDateString('fr-FR')}`, pageW - margin, y, { align: 'right' });
-    doc.save(`planning_${rayonNom.toLowerCase().replace(/\s+/g, '_')}_${formatDate(semaine)}.pdf`);
+    doc.save(`planning_${rayonNom.toLowerCase().replace(/\s+/g, '_')}_S${numSemaine}_${formatDate(semaine)}.pdf`);
   }
 
   function handleExportExcel() {
@@ -301,17 +313,16 @@ export default function Planning() {
       return [c.nom, c.prenom, ...postes, travail, repos];
     });
     const wsData = [
-      [`PLANNING MARJANE TANGER — Rayon : ${rayonNom} — Semaine du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}`],
+      [`PLANNING MARJANE TANGER — Rayon : ${rayonNom} — S${numSemaine} — du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}`],
       [], headers, ...rows,
     ];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     ws['!cols'] = [{ wch: 18 }, { wch: 14 }, ...jours.map(() => ({ wch: 12 })), { wch: 14 }, { wch: 14 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Planning');
-    XLSX.writeFile(wb, `planning_${rayonNom.toLowerCase().replace(/\s+/g, '_')}_${formatDate(semaine)}.xlsx`);
+    XLSX.writeFile(wb, `planning_${rayonNom.toLowerCase().replace(/\s+/g, '_')}_S${numSemaine}_${formatDate(semaine)}.xlsx`);
   }
 
-  // Swipe handlers
   function handleTouchStart(e: React.TouchEvent) {
     touchStartX.current = e.targetTouches[0].clientX;
   }
@@ -325,34 +336,49 @@ export default function Planning() {
     }
   }
 
-  const semaineLabel = `${formatDisplay(semaine)} – ${formatDisplay(addDays(semaine, 6))}`;
+  // Grouper rayons par département pour le select
+  const rayonsGroupes: Record<string, { depNom: string; rayons: Rayon[] }> = {};
+  for (const r of rayons) {
+    const depId = r.departement_id;
+    const depNom = r.departements?.nom ?? '—';
+    if (!rayonsGroupes[depId]) rayonsGroupes[depId] = { depNom, rayons: [] };
+    rayonsGroupes[depId].rayons.push(r);
+  }
+
+  const semaineLabel = `S${numSemaine} — ${formatDisplay(semaine)} au ${formatDisplay(addDays(semaine, 6))}`;
 
   return (
     <div className="space-y-3">
 
-      {/* Contrôles */}
       <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
         {(isAdmin || isChefDep) && rayons.length > 1 && (
           <select
             value={rayonId}
-            onChange={e => { setRayonId(e.target.value); const r = rayons.find(r => r.id === e.target.value); setRayonNom(r?.nom ?? ''); }}
+            onChange={e => {
+              setRayonId(e.target.value);
+              const r = rayons.find(r => r.id === e.target.value);
+              setRayonNom(r?.nom ?? '');
+            }}
             className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="">— Choisir un rayon —</option>
-            {rayons.map(r => (
-              <option key={r.id} value={r.id}>
-                {r.departements?.nom ? `${r.departements.nom} › ` : ''}{r.nom}
-              </option>
+            {Object.values(rayonsGroupes).map(({ depNom, rayons: depRayons }) => (
+              <optgroup key={depNom} label={depNom}>
+                {depRayons.map(r => (
+                  <option key={r.id} value={r.id}>
+                    {r.numero ? `[${r.numero}] ` : ''}{r.nom}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
         )}
 
-        {/* Navigation semaine avec swipe hint */}
         <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2">
           <button onClick={() => setSemaine(d => getLundi(addDays(d, -7)))} className="p-1 hover:bg-gray-100 rounded-lg">
             <ChevronLeft className="w-4 h-4" />
           </button>
-          <span className="text-sm font-medium w-32 text-center">{semaineLabel}</span>
+          <span className="text-sm font-medium w-40 text-center">{semaineLabel}</span>
           <button onClick={() => setSemaine(d => getLundi(addDays(d, 7)))} className="p-1 hover:bg-gray-100 rounded-lg">
             <ChevronRight className="w-4 h-4" />
           </button>
@@ -394,7 +420,6 @@ export default function Planning() {
         )}
       </div>
 
-      {/* Statut */}
       {planningId && (
         <div className="flex items-center gap-2 flex-wrap">
           <span className={`text-xs px-3 py-1.5 rounded-full font-medium ${STATUT_STYLE[planningStatut]}`}>
@@ -408,7 +433,6 @@ export default function Planning() {
         </div>
       )}
 
-      {/* Légende compacte */}
       <div className="flex flex-wrap gap-1.5">
         {POSTES.map(p => (
           <span key={p} className={`text-xs px-2 py-0.5 rounded-lg border font-medium ${POSTE_STYLE[p]}`}>
@@ -436,7 +460,6 @@ export default function Planning() {
         </div>
       )}
 
-      {/* Grille avec swipe */}
       {rayonId && !loading && collaborateurs.length > 0 && (
         <div
           className="bg-white rounded-2xl border border-gray-100 overflow-hidden"
@@ -484,7 +507,6 @@ export default function Planning() {
               </tbody>
             </table>
           </div>
-          {/* Swipe hint mobile */}
           <div className="sm:hidden text-center py-2 text-xs text-gray-300">
             ← Glisse pour changer de semaine →
           </div>
