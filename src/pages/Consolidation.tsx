@@ -6,7 +6,7 @@ import { canAccessAdmin } from '../types';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 
-type Poste = 'M' | 'AM' | 'N' | 'R' | 'C';
+type Poste = 'M' | 'T' | 'S' | 'R' | 'C';
 
 const POSTE_STYLE: Record<Poste, string> = {
   M:  'bg-amber-100 text-amber-800 border-amber-300',
@@ -232,7 +232,7 @@ export default function Consolidation() {
       doc.setFontSize(7);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(100, 100, 100);
-      doc.text('M = Matin  |  AM = Après-midi  |  N = Nuit  |  R = Repos  |  C = Congé', margin, y);
+      doc.text('M = Matin  |  T = Tranche  |  S = Soir  |  R = Repos  |  C = Congé', margin, y);
       doc.setTextColor(180, 180, 180);
       doc.text(`Imprimé le ${new Date().toLocaleDateString('fr-FR')}`, pageW - margin, y, { align: 'right' });
     }
@@ -254,7 +254,7 @@ export default function Consolidation() {
 
       const rows = rayon.collaborateurs.map(c => {
         const postes = jours.map(j => rayon.grille[c.id]?.[formatDate(j)] ?? 'R');
-        const travail = postes.filter(p => ['M', 'AM', 'N'].includes(p)).length;
+        const travail = postes.filter(p => ['M', 'T', 'S'].includes(p)).length;
         const repos = postes.filter(p => ['R', 'C'].includes(p)).length;
         return [c.nom, c.prenom, ...postes, travail, repos];
       });
