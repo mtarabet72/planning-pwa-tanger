@@ -10,16 +10,16 @@ type Poste = 'M' | 'T' | 'S' | 'R' | 'C';
 
 const POSTE_STYLE: Record<Poste, string> = {
   M:  'bg-amber-100 text-amber-800 border-amber-300',
-  AM: 'bg-blue-100 text-blue-800 border-blue-300',
-  N:  'bg-indigo-100 text-indigo-800 border-indigo-300',
+  T: 'bg-blue-100 text-blue-800 border-blue-300',
+  S:  'bg-indigo-100 text-indigo-800 border-indigo-300',
   R:  'bg-gray-100 text-gray-500 border-gray-300',
   C:  'bg-emerald-100 text-emerald-800 border-emerald-300',
 };
 
 const POSTE_FILL: Record<Poste, [number, number, number]> = {
   M:  [254, 243, 199],
-  AM: [219, 234, 254],
-  N:  [224, 231, 255],
+  T: [219, 234, 254],
+  S:  [224, 231, 255],
   R:  [243, 244, 246],
   C:  [209, 250, 229],
 };
