@@ -10,8 +10,8 @@ type Poste = 'M' | 'T' | 'S' | 'R' | 'C';
 
 const POSTE_STYLE: Record<Poste, string> = {
   M:  'bg-amber-100 text-amber-800',
-  AM: 'bg-blue-100 text-blue-800',
-  N:  'bg-indigo-100 text-indigo-800',
+  T: 'bg-blue-100 text-blue-800',
+  S:  'bg-indigo-100 text-indigo-800',
   R:  'bg-gray-100 text-gray-500',
   C:  'bg-emerald-100 text-emerald-800',
 };
