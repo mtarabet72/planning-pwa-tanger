@@ -6,7 +6,7 @@ import { canAccessAdmin } from '../types';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 
-type Poste = 'M' | 'AM' | 'N' | 'R' | 'C';
+type Poste = 'M' | 'T' | 'S' | 'R' | 'C';
 
 const POSTE_STYLE: Record<Poste, string> = {
   M:  'bg-amber-100 text-amber-800',
@@ -17,7 +17,7 @@ const POSTE_STYLE: Record<Poste, string> = {
 };
 
 const POSTE_LABEL: Record<Poste, string> = {
-  M: 'Matin', AM: 'Après-midi', N: 'Nuit', R: 'Repos', C: 'Congé',
+  M: 'Matin', T: 'Tranche', S: 'Soir', R: 'Repos', C: 'Congé',
 };
 
 const JOURS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
@@ -137,7 +137,7 @@ export default function Rapports() {
       const { data: lignes } = await supabase
         .from('planning_lignes').select('collaborateur_id, poste')
         .eq('planning_id', plan.id).eq('jour', date)
-        .in('poste', ['M', 'AM', 'N']);
+        .in('poste', ['M', 'T', 'S']);
 
       if (!lignes?.length) continue;
 
@@ -219,7 +219,7 @@ export default function Rapports() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result: MoisLigne[] = (cols as any[]).map(c => {
       const cLignes = (lignes ?? []).filter((l: { collaborateur_id: string }) => l.collaborateur_id === c.id);
-      const travail = cLignes.filter((l: { poste: string }) => ['M', 'AM', 'N'].includes(l.poste)).length;
+      const travail = cLignes.filter((l: { poste: string }) => ['M', 'T', 'S'].includes(l.poste)).length;
       const repos = cLignes.filter((l: { poste: string }) => l.poste === 'R').length;
       const conge = cLignes.filter((l: { poste: string }) => l.poste === 'C').length;
       return {
@@ -441,7 +441,7 @@ export default function Rapports() {
                         </thead>
                         <tbody className="divide-y divide-gray-50">
                           {rayon.collaborateurs.map((c, i) => {
-                            const travail = c.postes.filter(p => ['M', 'AM', 'N'].includes(p)).length;
+                            const travail = c.postes.filter(p => ['M', 'T', 'S'].includes(p)).length;
                             return (
                               <tr key={i} className="hover:bg-gray-50">
                                 <td className="px-4 py-2 font-medium">{c.nom} <span className="text-gray-400 font-normal">{c.prenom}</span></td>
