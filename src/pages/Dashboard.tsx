@@ -34,11 +34,11 @@ function StatCard({ label, value, sub, color, icon: Icon }: {
 }
 
 const POSTE_LABEL: Record<string, string> = {
-  M: 'Matin', AM: 'Après-midi', N: 'Nuit', R: 'Repos', C: 'Congé',
+  M: 'Matin', T: 'Tranche', S: 'Soir', R: 'Repos', C: 'Congé',
 };
 
 const POSTE_COLOR: Record<string, string> = {
-  M: 'bg-amber-400', AM: 'bg-blue-400', N: 'bg-indigo-400', R: 'bg-gray-300', C: 'bg-emerald-400',
+  M: 'bg-amber-400', T: 'bg-blue-400', S: 'bg-indigo-400', R: 'bg-gray-300', C: 'bg-emerald-400',
 };
 
 function getLundi(date: Date): string {
@@ -117,7 +117,7 @@ export default function Dashboard() {
       .select('poste, plannings!inner(semaine_debut)')
       .eq('plannings.semaine_debut', semaineCourante);
 
-    const repartition: Record<string, number> = { M: 0, AM: 0, N: 0, R: 0, C: 0 };
+    const repartition: Record<string, number> = { M: 0, T: 0, S: 0, R: 0, C: 0 };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const l of (lignesRaw ?? []) as any[]) {
       if (repartition[l.poste] !== undefined) repartition[l.poste]++;
