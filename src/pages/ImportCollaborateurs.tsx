@@ -9,6 +9,7 @@ interface CollaborateurRow {
   prenom: string;
   departement: string;
   rayon: string;
+  telephone: string;
   statut?: 'ok' | 'erreur' | 'doublon';
   message?: string;
 }
@@ -38,6 +39,7 @@ export default function ImportCollaborateurs({ onClose }: { onClose: () => void 
           prenom: String(row[2] ?? '').trim(),
           departement: String(row[3] ?? '').trim(),
           rayon: String(row[4] ?? '').trim(),
+          telephone: String(row[5] ?? '').trim(),
         });
       }
       setRows(parsed);
@@ -58,26 +60,24 @@ export default function ImportCollaborateurs({ onClose }: { onClose: () => void 
         continue;
       }
 
-      // Résoudre departement_id
       const { data: dep } = await supabase
         .from('departements')
         .select('id')
         .ilike('nom', row.departement)
         .single();
 
-      // Résoudre rayon_id
       const { data: rayon } = await supabase
         .from('rayons')
         .select('id')
         .ilike('nom', row.rayon)
         .single();
 
-      // Upsert sur matricule
       const { error } = await supabase.from('collaborateurs').upsert(
         {
           matricule: row.matricule,
           nom: row.nom,
           prenom: row.prenom,
+          telephone: row.telephone || null,
           departement_id: dep?.id ?? null,
           rayon_id: rayon?.id ?? null,
           actif: true,
@@ -117,7 +117,6 @@ export default function ImportCollaborateurs({ onClose }: { onClose: () => void 
         </div>
 
         <div className="p-6 space-y-5">
-          {/* Zone de dépôt */}
           {!rows.length && (
             <div
               onClick={() => inputRef.current?.click()}
@@ -127,7 +126,7 @@ export default function ImportCollaborateurs({ onClose }: { onClose: () => void 
               <p className="font-medium text-gray-700">Glisse ton fichier Excel ici</p>
               <p className="text-sm text-gray-400 mt-1">ou appuie pour choisir un fichier</p>
               <p className="text-xs text-gray-400 mt-3">
-                Colonnes attendues : A=Matricule · B=Nom · C=Prénom · D=Département · E=Rayon
+                Colonnes attendues : A=Matricule · B=Nom · C=Prénom · D=Département · E=Rayon · F=Téléphone
               </p>
               <input
                 ref={inputRef}
@@ -139,7 +138,6 @@ export default function ImportCollaborateurs({ onClose }: { onClose: () => void 
             </div>
           )}
 
-          {/* Aperçu */}
           {rows.length > 0 && (
             <>
               {done && (
@@ -172,6 +170,7 @@ export default function ImportCollaborateurs({ onClose }: { onClose: () => void 
                       <th className="text-left px-3 py-2 font-medium text-gray-500">Prénom</th>
                       <th className="text-left px-3 py-2 font-medium text-gray-500">Département</th>
                       <th className="text-left px-3 py-2 font-medium text-gray-500">Rayon</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-500">Téléphone</th>
                       {done && <th className="text-left px-3 py-2 font-medium text-gray-500">Statut</th>}
                     </tr>
                   </thead>
@@ -187,6 +186,7 @@ export default function ImportCollaborateurs({ onClose }: { onClose: () => void 
                         <td className="px-3 py-2">{r.prenom}</td>
                         <td className="px-3 py-2">{r.departement}</td>
                         <td className="px-3 py-2">{r.rayon}</td>
+                        <td className="px-3 py-2">{r.telephone || '—'}</td>
                         {done && (
                           <td className="px-3 py-2">
                             {r.statut === 'ok' && <CheckCircle className="w-4 h-4 text-emerald-500" />}
