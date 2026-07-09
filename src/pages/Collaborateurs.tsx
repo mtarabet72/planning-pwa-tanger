@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2, Search, Loader2, X, Check } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, Loader2, X, Check, Phone } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import type { Departement, Rayon } from '../types';
 
@@ -8,6 +8,7 @@ interface Collaborateur {
   matricule: string;
   nom: string;
   prenom: string;
+  telephone: string | null;
   actif: boolean;
   departement_id: string | null;
   rayon_id: string | null;
@@ -19,6 +20,7 @@ interface FormData {
   matricule: string;
   nom: string;
   prenom: string;
+  telephone: string;
   departement_id: string;
   rayon_id: string;
   actif: boolean;
@@ -28,6 +30,7 @@ const EMPTY_FORM: FormData = {
   matricule: '',
   nom: '',
   prenom: '',
+  telephone: '',
   departement_id: '',
   rayon_id: '',
   actif: true,
@@ -81,6 +84,7 @@ export default function Collaborateurs() {
       matricule: c.matricule,
       nom: c.nom,
       prenom: c.prenom,
+      telephone: c.telephone ?? '',
       departement_id: c.departement_id ?? '',
       rayon_id: c.rayon_id ?? '',
       actif: c.actif,
@@ -97,6 +101,7 @@ export default function Collaborateurs() {
       matricule: form.matricule.trim(),
       nom: form.nom.trim().toUpperCase(),
       prenom: form.prenom.trim(),
+      telephone: form.telephone.trim() || null,
       departement_id: form.departement_id || null,
       rayon_id: form.rayon_id || null,
       actif: form.actif,
@@ -125,7 +130,8 @@ export default function Collaborateurs() {
       !q ||
       c.nom.toLowerCase().includes(q) ||
       c.prenom.toLowerCase().includes(q) ||
-      c.matricule.toLowerCase().includes(q);
+      c.matricule.toLowerCase().includes(q) ||
+      (c.telephone ?? '').toLowerCase().includes(q);
     const matchDep = !filterDep || c.departement_id === filterDep;
     const matchRayon = !filterRayon || c.rayon_id === filterRayon;
     return matchSearch && matchDep && matchRayon;
@@ -136,13 +142,12 @@ export default function Collaborateurs() {
   return (
     <div className="space-y-4">
 
-      {/* Barre d'outils */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
-            placeholder="Rechercher nom, prénom, matricule..."
+            placeholder="Rechercher nom, prénom, matricule, tél..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -175,10 +180,8 @@ export default function Collaborateurs() {
         </button>
       </div>
 
-      {/* Compteur */}
       <p className="text-xs text-gray-500">{filtered.length} collaborateur(s)</p>
 
-      {/* Liste */}
       {loading ? (
         <div className="flex justify-center py-16">
           <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
@@ -195,6 +198,7 @@ export default function Collaborateurs() {
                 <tr>
                   <th className="text-left px-4 py-3 font-medium text-gray-500 text-xs">Matricule</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-500 text-xs">Nom & Prénom</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-500 text-xs hidden md:table-cell">Téléphone</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-500 text-xs hidden sm:table-cell">Département</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-500 text-xs hidden sm:table-cell">Rayon</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-500 text-xs">Statut</th>
@@ -208,6 +212,14 @@ export default function Collaborateurs() {
                     <td className="px-4 py-3">
                       <div className="font-medium">{c.nom}</div>
                       <div className="text-xs text-gray-500">{c.prenom}</div>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-600 hidden md:table-cell">
+                      {c.telephone ? (
+                        <a href={`tel:${c.telephone}`} className="flex items-center gap-1 text-blue-600 hover:underline">
+                          <Phone className="w-3 h-3" />
+                          {c.telephone}
+                        </a>
+                      ) : '—'}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-600 hidden sm:table-cell">
                       {c.departements?.nom ?? '—'}
@@ -246,11 +258,10 @@ export default function Collaborateurs() {
         </div>
       )}
 
-      {/* Modal formulaire */}
       {showForm && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md">
-            <div className="flex items-center justify-between p-6 border-b border-gray-100">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md max-h-screen overflow-y-auto">
+            <div className="flex items-center justify-between p-6 border-b border-gray-100 sticky top-0 bg-white">
               <h3 className="font-semibold text-lg">{editId ? 'Modifier' : 'Ajouter'} un collaborateur</h3>
               <button onClick={() => setShowForm(false)} className="p-2 hover:bg-gray-100 rounded-xl">
                 <X className="w-5 h-5" />
@@ -286,6 +297,19 @@ export default function Collaborateurs() {
                     onChange={e => setForm(f => ({ ...f, prenom: e.target.value }))}
                     className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="Mohamed"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Téléphone</label>
+                <div className="relative">
+                  <Phone className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="tel"
+                    value={form.telephone}
+                    onChange={e => setForm(f => ({ ...f, telephone: e.target.value }))}
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="06 12 34 56 78"
                   />
                 </div>
               </div>
@@ -342,7 +366,6 @@ export default function Collaborateurs() {
         </div>
       )}
 
-      {/* Modal confirmation suppression */}
       {deleteId && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 text-center">
