@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, X, UserCog, LayoutGrid, Building2, User, Bell, ClipboardCheck, History, MoreHorizontal } from 'lucide-react';
+import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, X, UserCog, LayoutGrid, Building2, User, Bell, ClipboardCheck, History, MoreHorizontal, Users2 } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import ImportCollaborateurs from './pages/ImportCollaborateurs';
@@ -14,6 +14,7 @@ import Departements from './pages/Departements';
 import Profil from './pages/Profil';
 import Validation from './pages/Validation';
 import Historique from './pages/Historique';
+import PlanningEncadrement from './pages/PlanningEncadrement';
 import { ROLE_LABELS, canAccessAdmin } from './types';
 import { useNotifications } from './hooks/useNotifications';
 
@@ -33,7 +34,7 @@ function FullScreenMessage({ title, body, onSignOut }: { title: string; body: st
 
 function AppShell() {
   const { profile, signOut } = useAuth();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'planning' | 'validation' | 'historique' | 'consolidation' | 'admin' | 'reports' | 'profil'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'planning' | 'encadrement' | 'validation' | 'historique' | 'consolidation' | 'admin' | 'reports' | 'profil'>('dashboard');
   const [adminSection, setAdminSection] = useState<'menu' | 'collaborateurs' | 'utilisateurs' | 'rayons' | 'departements'>('menu');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -51,6 +52,7 @@ function AppShell() {
   const menuItems = [
     { id: 'dashboard', label: 'Tableau de Bord', icon: BarChart3 },
     { id: 'planning', label: 'Planning', icon: Calendar },
+    { id: 'encadrement', label: 'Encadrement', icon: Users2, depOnly: true },
     { id: 'validation', label: 'Validation', icon: ClipboardCheck },
     { id: 'historique', label: 'Historique', icon: History },
     { id: 'consolidation', label: 'Consolidation', icon: LayoutGrid, depOnly: true },
@@ -58,7 +60,6 @@ function AppShell() {
     { id: 'reports', label: 'Rapports', icon: FileText },
   ] as const;
 
-  // Bottom nav : 4 onglets principaux + "Plus"
   const bottomNav = [
     { id: 'dashboard', label: 'Accueil', icon: BarChart3 },
     { id: 'planning', label: 'Planning', icon: Calendar },
@@ -85,6 +86,7 @@ function AppShell() {
   const pageTitle: Record<typeof activeTab, string> = {
     dashboard: 'Tableau de Bord',
     planning: 'Planning',
+    encadrement: 'Planning Encadrement',
     validation: 'Validation',
     historique: 'Historique',
     consolidation: 'Consolidation',
@@ -149,7 +151,6 @@ function AppShell() {
 
       {showImport && <ImportCollaborateurs onClose={() => setShowImport(false)} />}
 
-      {/* Panneau notifications */}
       {showNotifications && (
         <div className="fixed inset-0 z-50 flex">
           <div className="absolute inset-0 bg-black/20" onClick={() => setShowNotifications(false)} />
@@ -194,7 +195,6 @@ function AppShell() {
         </div>
       )}
 
-      {/* Menu "Plus" mobile */}
       {showMore && (
         <div className="fixed inset-0 z-50 lg:hidden flex items-end">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowMore(false)} />
@@ -206,6 +206,13 @@ function AppShell() {
               </button>
             </div>
             <div className="grid grid-cols-3 gap-3">
+              {(isAdmin || isChefDep) && (
+                <button onClick={() => handleNav('encadrement')}
+                  className={`flex flex-col items-center gap-2 p-4 rounded-2xl border transition ${activeTab === 'encadrement' ? 'bg-blue-50 border-blue-200' : 'border-gray-100 hover:bg-gray-50'}`}>
+                  <Users2 className="w-6 h-6 text-purple-600" />
+                  <span className="text-xs font-medium text-gray-700">Encadrement</span>
+                </button>
+              )}
               {(isAdmin || isChefDep) && (
                 <button onClick={() => handleNav('consolidation')}
                   className={`flex flex-col items-center gap-2 p-4 rounded-2xl border transition ${activeTab === 'consolidation' ? 'bg-blue-50 border-blue-200' : 'border-gray-100 hover:bg-gray-50'}`}>
@@ -240,12 +247,10 @@ function AppShell() {
         </div>
       )}
 
-      {/* Sidebar desktop */}
       <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:w-72 lg:flex lg:flex-col bg-white border-r border-gray-200 shadow-xl z-40">
         <Sidebar />
       </div>
 
-      {/* Sidebar mobile (hamburger) */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-black/40" onClick={() => setSidebarOpen(false)} />
@@ -260,7 +265,6 @@ function AppShell() {
 
       <div className="lg:ml-72 pb-20 lg:pb-0">
 
-        {/* Header mobile */}
         <div className="lg:hidden flex items-center gap-3 px-4 py-3 bg-white border-b border-gray-200 sticky top-0 z-30">
           <div className="flex items-center gap-2 flex-1">
             <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">P</div>
@@ -278,7 +282,6 @@ function AppShell() {
 
         <div className="p-4 lg:p-8">
 
-          {/* Header desktop */}
           <header className="hidden lg:flex items-center justify-between mb-8">
             <div className="flex items-center gap-2">
               {activeTab === 'admin' && adminSection !== 'menu' && (
@@ -299,7 +302,6 @@ function AppShell() {
             </button>
           </header>
 
-          {/* Bandeau alerte */}
           {notifCount > 0 && (activeTab === 'dashboard' || activeTab === 'planning') && (
             <div className="mb-4 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -314,6 +316,7 @@ function AppShell() {
 
           {activeTab === 'dashboard' && <Dashboard />}
           {activeTab === 'planning' && <Planning />}
+          {activeTab === 'encadrement' && (isAdmin || isChefDep) && <PlanningEncadrement />}
           {activeTab === 'validation' && <Validation />}
           {activeTab === 'historique' && <Historique />}
           {activeTab === 'consolidation' && (isAdmin || isChefDep) && <Consolidation />}
@@ -360,8 +363,7 @@ function AppShell() {
         </div>
       </div>
 
-      {/* Bottom Navigation Mobile */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-30 safe-bottom">
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-30">
         <div className="flex items-center">
           {bottomNav.map(item => {
             const Icon = item.icon;
@@ -381,7 +383,7 @@ function AppShell() {
             );
           })}
           <button onClick={() => setShowMore(true)}
-            className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 transition-colors ${['consolidation', 'admin', 'reports', 'profil'].includes(activeTab) ? 'text-blue-600' : 'text-gray-400'}`}>
+            className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 transition-colors ${['encadrement', 'consolidation', 'admin', 'reports', 'profil'].includes(activeTab) ? 'text-blue-600' : 'text-gray-400'}`}>
             <MoreHorizontal className="w-5 h-5" />
             <span className="text-xs font-medium">Plus</span>
           </button>
