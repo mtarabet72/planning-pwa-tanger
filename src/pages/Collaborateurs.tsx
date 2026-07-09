@@ -3,12 +3,27 @@ import { Plus, Pencil, Trash2, Search, Loader2, X, Check, Phone } from 'lucide-r
 import { supabase } from '../lib/supabase';
 import type { Departement, Rayon } from '../types';
 
+type Fonction = 'employe' | 'chef_rayon' | 'assistante';
+
+const FONCTION_LABEL: Record<Fonction, string> = {
+  employe: 'Employé',
+  chef_rayon: 'Chef de Rayon',
+  assistante: 'Assistante',
+};
+
+const FONCTION_STYLE: Record<Fonction, string> = {
+  employe: 'bg-gray-100 text-gray-600',
+  chef_rayon: 'bg-purple-50 text-purple-700',
+  assistante: 'bg-blue-50 text-blue-700',
+};
+
 interface Collaborateur {
   id: string;
   matricule: string;
   nom: string;
   prenom: string;
   telephone: string | null;
+  fonction: Fonction;
   actif: boolean;
   departement_id: string | null;
   rayon_id: string | null;
@@ -21,6 +36,7 @@ interface FormData {
   nom: string;
   prenom: string;
   telephone: string;
+  fonction: Fonction;
   departement_id: string;
   rayon_id: string;
   actif: boolean;
@@ -31,6 +47,7 @@ const EMPTY_FORM: FormData = {
   nom: '',
   prenom: '',
   telephone: '',
+  fonction: 'employe',
   departement_id: '',
   rayon_id: '',
   actif: true,
@@ -45,6 +62,7 @@ export default function Collaborateurs() {
   const [search, setSearch] = useState('');
   const [filterDep, setFilterDep] = useState('');
   const [filterRayon, setFilterRayon] = useState('');
+  const [filterFonction, setFilterFonction] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<FormData>(EMPTY_FORM);
@@ -85,6 +103,7 @@ export default function Collaborateurs() {
       nom: c.nom,
       prenom: c.prenom,
       telephone: c.telephone ?? '',
+      fonction: c.fonction ?? 'employe',
       departement_id: c.departement_id ?? '',
       rayon_id: c.rayon_id ?? '',
       actif: c.actif,
@@ -102,6 +121,7 @@ export default function Collaborateurs() {
       nom: form.nom.trim().toUpperCase(),
       prenom: form.prenom.trim(),
       telephone: form.telephone.trim() || null,
+      fonction: form.fonction,
       departement_id: form.departement_id || null,
       rayon_id: form.rayon_id || null,
       actif: form.actif,
@@ -134,7 +154,8 @@ export default function Collaborateurs() {
       (c.telephone ?? '').toLowerCase().includes(q);
     const matchDep = !filterDep || c.departement_id === filterDep;
     const matchRayon = !filterRayon || c.rayon_id === filterRayon;
-    return matchSearch && matchDep && matchRayon;
+    const matchFonction = !filterFonction || c.fonction === filterFonction;
+    return matchSearch && matchDep && matchRayon && matchFonction;
   });
 
   const filterRayons = filterDep ? rayons.filter(r => r.departement_id === filterDep) : [];
@@ -142,12 +163,12 @@ export default function Collaborateurs() {
   return (
     <div className="space-y-4">
 
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
+      <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-40">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
-            placeholder="Rechercher nom, prénom, matricule, tél..."
+            placeholder="Rechercher nom, matricule, tél..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -171,6 +192,16 @@ export default function Collaborateurs() {
             {filterRayons.map(r => <option key={r.id} value={r.id}>{r.nom}</option>)}
           </select>
         )}
+        <select
+          value={filterFonction}
+          onChange={e => setFilterFonction(e.target.value)}
+          className="py-2.5 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="">Toutes fonctions</option>
+          <option value="employe">Employé</option>
+          <option value="chef_rayon">Chef de Rayon</option>
+          <option value="assistante">Assistante</option>
+        </select>
         <button
           onClick={openAdd}
           className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 transition shrink-0"
@@ -198,6 +229,7 @@ export default function Collaborateurs() {
                 <tr>
                   <th className="text-left px-4 py-3 font-medium text-gray-500 text-xs">Matricule</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-500 text-xs">Nom & Prénom</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-500 text-xs">Fonction</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-500 text-xs hidden md:table-cell">Téléphone</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-500 text-xs hidden sm:table-cell">Département</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-500 text-xs hidden sm:table-cell">Rayon</th>
@@ -212,6 +244,11 @@ export default function Collaborateurs() {
                     <td className="px-4 py-3">
                       <div className="font-medium">{c.nom}</div>
                       <div className="text-xs text-gray-500">{c.prenom}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${FONCTION_STYLE[c.fonction ?? 'employe']}`}>
+                        {FONCTION_LABEL[c.fonction ?? 'employe']}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-600 hidden md:table-cell">
                       {c.telephone ? (
@@ -312,6 +349,18 @@ export default function Collaborateurs() {
                     placeholder="06 12 34 56 78"
                   />
                 </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Fonction</label>
+                <select
+                  value={form.fonction}
+                  onChange={e => setForm(f => ({ ...f, fonction: e.target.value as Fonction }))}
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="employe">Employé</option>
+                  <option value="chef_rayon">Chef de Rayon</option>
+                  <option value="assistante">Assistante</option>
+                </select>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Département</label>
