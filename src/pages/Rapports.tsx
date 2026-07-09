@@ -9,11 +9,11 @@ import * as XLSX from 'xlsx';
 type Poste = 'M' | 'T' | 'S' | 'R' | 'C';
 
 const POSTE_STYLE: Record<Poste, string> = {
-  M:  'bg-amber-100 text-amber-800',
+  M: 'bg-amber-100 text-amber-800',
   T: 'bg-blue-100 text-blue-800',
-  S:  'bg-indigo-100 text-indigo-800',
-  R:  'bg-gray-100 text-gray-500',
-  C:  'bg-emerald-100 text-emerald-800',
+  S: 'bg-indigo-100 text-indigo-800',
+  R: 'bg-gray-100 text-gray-500',
+  C: 'bg-emerald-100 text-emerald-800',
 };
 
 const POSTE_LABEL: Record<Poste, string> = {
@@ -134,6 +134,7 @@ export default function Rapports() {
         .from('plannings').select('id').eq('rayon_id', rayon.id).eq('semaine_debut', lundi).single();
       if (!plan) continue;
 
+      // Toutes les tranches de présence (M, T, S) — pas seulement Matin
       const { data: lignes } = await supabase
         .from('planning_lignes').select('collaborateur_id, poste')
         .eq('planning_id', plan.id).eq('jour', date)
@@ -147,7 +148,10 @@ export default function Rapports() {
           .from('collaborateurs').select('nom, prenom').eq('id', l.collaborateur_id).single();
         if (col) cols.push({ nom: col.nom, prenom: col.prenom, poste: l.poste as Poste });
       }
-      if (cols.length) result.push({ rayonNom: rayon.nom, collaborateurs: cols.sort((a, b) => a.nom.localeCompare(b.nom)) });
+      // Trier par tranche (M, T, S) puis par nom
+      const ordre: Record<Poste, number> = { M: 0, T: 1, S: 2, R: 3, C: 4 };
+      cols.sort((a, b) => ordre[a.poste] - ordre[b.poste] || a.nom.localeCompare(b.nom));
+      if (cols.length) result.push({ rayonNom: rayon.nom, collaborateurs: cols });
     }
     setJournalierData(result);
   }
@@ -251,13 +255,14 @@ export default function Rapports() {
     doc.text(formatDisplayLong(new Date(date)), margin, 17);
 
     let y = 28;
-    const total = journalierData.reduce((acc: number, r: RayonLigne) => acc + r.collaborateurs.length, 0);
+    const total = journalierData.reduce((acc, r) => acc + r.collaborateurs.length, 0);
     doc.setFontSize(9);
     doc.setTextColor(60, 60, 60);
     doc.text(`Total présents : ${total} collaborateur(s)`, margin, y);
     y += 8;
 
     for (const rayon of journalierData) {
+      if (y > 260) { doc.addPage(); y = 20; }
       doc.setFillColor(240, 242, 255);
       doc.rect(margin, y, pageW - margin * 2, 7, 'F');
       doc.setFontSize(9);
@@ -269,6 +274,7 @@ export default function Rapports() {
       y += 7;
 
       for (const c of rayon.collaborateurs) {
+        if (y > 270) { doc.addPage(); y = 20; }
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(30, 30, 30);
         doc.setFontSize(8);
@@ -276,11 +282,74 @@ export default function Rapports() {
         doc.setTextColor(80, 80, 80);
         doc.text(POSTE_LABEL[c.poste], pageW - margin - 2, y + 4, { align: 'right' });
         y += 7;
-        if (y > 270) { doc.addPage(); y = 20; }
       }
       y += 2;
     }
+
     doc.save(`rapport_journalier_${date}.pdf`);
+  }
+
+  function exportHebdoPDF() {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const pageW = 297;
+    const margin = 14;
+    const nameColW = 42;
+    const colW = (pageW - margin * 2 - nameColW) / 7;
+    let firstPage = true;
+
+    for (const rayon of hebdoData) {
+      if (!rayon.collaborateurs.length) continue;
+      if (!firstPage) doc.addPage();
+      firstPage = false;
+
+      doc.setFillColor(37, 99, 235);
+      doc.rect(0, 0, pageW, 22, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`RAPPORT HEBDOMADAIRE — ${rayon.rayonNom}`, margin, 10);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`${rayon.depNom}  |  Semaine du ${formatDisplay(semaine)} au ${formatDisplay(addDays(semaine, 6))}`, margin, 17);
+
+      let y = 26;
+      const headerH = 8;
+      doc.setFillColor(240, 242, 255);
+      doc.rect(margin, y, nameColW, headerH, 'F');
+      doc.setTextColor(50, 50, 50);
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Collaborateur', margin + 2, y + 5.5);
+      jours.forEach((j, i) => {
+        const x = margin + nameColW + i * colW;
+        doc.setFillColor(240, 242, 255);
+        doc.rect(x, y, colW, headerH, 'F');
+        doc.text(`${JOURS[i]} ${formatDisplay(j)}`, x + colW / 2, y + 5.5, { align: 'center' });
+      });
+      y += headerH;
+
+      const rowH = 9;
+      rayon.collaborateurs.forEach((c, idx) => {
+        const bg: [number, number, number] = idx % 2 === 0 ? [255, 255, 255] : [249, 250, 251];
+        doc.setFillColor(...bg);
+        doc.rect(margin, y, pageW - margin * 2, rowH, 'F');
+        doc.setTextColor(30, 30, 30);
+        doc.setFontSize(7.5);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`${c.nom} ${c.prenom}`, margin + 2, y + 5.5);
+        c.postes.forEach((p, i) => {
+          const x = margin + nameColW + i * colW;
+          doc.setFontSize(8);
+          doc.text(p, x + colW / 2, y + 5.5, { align: 'center' });
+        });
+        y += rowH;
+      });
+
+      doc.setDrawColor(210, 210, 210);
+      doc.rect(margin, 26, pageW - margin * 2, y - 26);
+    }
+
+    doc.save(`rapport_hebdomadaire_${formatDate(semaine)}.pdf`);
   }
 
   function exportMensuelExcel() {
@@ -294,13 +363,65 @@ export default function Rapports() {
       headers,
       ...rows,
       [],
-      ['TOTAL', '', '', moisData.reduce((a: number, c: MoisLigne) => a + c.travail, 0), moisData.reduce((a: number, c: MoisLigne) => a + c.repos, 0), moisData.reduce((a: number, c: MoisLigne) => a + c.conge, 0), ''],
+      ['TOTAL', '', '', moisData.reduce((a, c) => a + c.travail, 0), moisData.reduce((a, c) => a + c.repos, 0), moisData.reduce((a, c) => a + c.conge, 0), ''],
     ];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     ws['!cols'] = [{ wch: 18 }, { wch: 14 }, { wch: 20 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Rapport Mensuel');
     XLSX.writeFile(wb, `rapport_mensuel_${mois}.xlsx`);
+  }
+
+  function exportMensuelPDF() {
+    const [year, month] = mois.split('-').map(Number);
+    const nomMois = new Date(year, month - 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const margin = 14;
+    const pageW = 210;
+
+    doc.setFillColor(37, 99, 235);
+    doc.rect(0, 0, pageW, 22, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(13);
+    doc.setFont('helvetica', 'bold');
+    doc.text('RAPPORT MENSUEL — MARJANE TANGER', margin, 10);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(nomMois.charAt(0).toUpperCase() + nomMois.slice(1), margin, 17);
+
+    let y = 28;
+    const colWidths = [45, 30, 22, 22, 22, 22];
+    const headers = ['Collaborateur', 'Rayon', 'Travail', 'Repos', 'Congé', 'Total'];
+    doc.setFillColor(240, 242, 255);
+    doc.rect(margin, y, pageW - margin * 2, 8, 'F');
+    doc.setTextColor(50, 50, 50);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    let x = margin;
+    headers.forEach((h, i) => {
+      doc.text(h, x + 2, y + 5.5);
+      x += colWidths[i];
+    });
+    y += 8;
+
+    moisData.forEach((c, idx) => {
+      if (y > 275) { doc.addPage(); y = 20; }
+      const bg: [number, number, number] = idx % 2 === 0 ? [255, 255, 255] : [249, 250, 251];
+      doc.setFillColor(...bg);
+      doc.rect(margin, y, pageW - margin * 2, 7, 'F');
+      doc.setTextColor(30, 30, 30);
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'normal');
+      x = margin;
+      const vals = [`${c.nom} ${c.prenom}`, c.rayonNom, `${c.travail}j`, `${c.repos}j`, `${c.conge}j`, `${c.total}j`];
+      vals.forEach((v, i) => {
+        doc.text(String(v), x + 2, y + 5);
+        x += colWidths[i];
+      });
+      y += 7;
+    });
+
+    doc.save(`rapport_mensuel_${mois}.pdf`);
   }
 
   const tabs = [
@@ -358,10 +479,20 @@ export default function Rapports() {
             <Printer className="w-4 h-4" /> PDF
           </button>
         )}
-        {activeTab === 'mensuel' && moisData.length > 0 && (
-          <button onClick={exportMensuelExcel} className="flex items-center gap-2 bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-green-700 transition">
-            <FileText className="w-4 h-4" /> Excel
+        {activeTab === 'hebdomadaire' && hebdoData.length > 0 && (
+          <button onClick={exportHebdoPDF} className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-emerald-700 transition">
+            <Printer className="w-4 h-4" /> PDF
           </button>
+        )}
+        {activeTab === 'mensuel' && moisData.length > 0 && (
+          <>
+            <button onClick={exportMensuelPDF} className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-emerald-700 transition">
+              <Printer className="w-4 h-4" /> PDF
+            </button>
+            <button onClick={exportMensuelExcel} className="flex items-center gap-2 bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-green-700 transition">
+              <FileText className="w-4 h-4" /> Excel
+            </button>
+          </>
         )}
       </div>
 
