@@ -9,16 +9,16 @@ import * as XLSX from 'xlsx';
 type Poste = 'M' | 'T' | 'S' | 'R' | 'C';
 
 const POSTE_STYLE: Record<Poste, string> = {
-  M:  'bg-amber-100 text-amber-800 border-amber-300',
+  M: 'bg-amber-100 text-amber-800 border-amber-300',
   T: 'bg-blue-100 text-blue-800 border-blue-300',
-  S:  'bg-indigo-100 text-indigo-800 border-indigo-300',
-  R:  'bg-gray-100 text-gray-500 border-gray-300',
-  C:  'bg-emerald-100 text-emerald-800 border-emerald-300',
+  S: 'bg-indigo-100 text-indigo-800 border-indigo-300',
+  R: 'bg-gray-100 text-gray-500 border-gray-300',
+  C: 'bg-emerald-100 text-emerald-800 border-emerald-300',
 };
 
 const POSTE_FILL: Record<Poste, [number, number, number]> = {
   M:  [254, 243, 199],
-  T: [219, 234, 254],
+  T:  [219, 234, 254],
   S:  [224, 231, 255],
   R:  [243, 244, 246],
   C:  [209, 250, 229],
@@ -56,6 +56,14 @@ function formatDisplayLong(date: Date): string {
   return date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
 }
 
+function getNumeroSemaine(date: Date): number {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 3 - (d.getDay() + 6) % 7);
+  const week1 = new Date(d.getFullYear(), 0, 4);
+  return 1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+}
+
 interface Collaborateur {
   id: string;
   nom: string;
@@ -65,6 +73,8 @@ interface Collaborateur {
 interface RayonData {
   id: string;
   nom: string;
+  numero: string | null;
+  depNom: string;
   collaborateurs: Collaborateur[];
   grille: Record<string, Record<string, Poste>>;
   hasPlanning: boolean;
@@ -77,27 +87,29 @@ export default function Consolidation() {
   const [semaine, setSemaine] = useState<Date>(getLundi(new Date()));
   const [rayonsData, setRayonsData] = useState<RayonData[]>([]);
   const [activeRayon, setActiveRayon] = useState<string>('');
-  const [depNom, setDepNom] = useState<string>('');
+  const [activeDep, setActiveDep] = useState<string>('');
+  const [depNomGlobal, setDepNomGlobal] = useState<string>('');
+
   const [loading, setLoading] = useState(false);
 
   const jours = Array.from({ length: 7 }, (_, i) => addDays(semaine, i));
+  const numSemaine = getNumeroSemaine(semaine);
 
   useEffect(() => { loadAll(); }, [semaine]);
 
   async function loadAll() {
     setLoading(true);
 
-    // Récupérer le département
     if (profile?.departement_id) {
       const { data: dep } = await supabase
         .from('departements').select('nom').eq('id', profile.departement_id).single();
-      setDepNom(dep?.nom ?? '');
+      setDepNomGlobal(dep?.nom ?? '');
     } else if (isAdmin) {
-      setDepNom('Tous les départements');
+      setDepNomGlobal('Tous les départements');
     }
 
-    // Récupérer les rayons
-    let rayQuery = supabase.from('rayons').select('id, nom').eq('actif', true).order('nom');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let rayQuery: any = supabase.from('rayons').select('id, nom, numero, departement_id, departements(nom)').eq('actif', true).order('nom');
     if (profile?.role === 'chef_departement' && profile.departement_id) {
       rayQuery = rayQuery.eq('departement_id', profile.departement_id);
     }
@@ -107,13 +119,12 @@ export default function Consolidation() {
     const debut = formatDate(semaine);
     const result: RayonData[] = [];
 
-    for (const rayon of rayons) {
-      // Collaborateurs du rayon
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const rayon of rayons as any[]) {
       const { data: cols } = await supabase
         .from('collaborateurs').select('id, nom, prenom')
         .eq('rayon_id', rayon.id).eq('actif', true).order('nom');
 
-      // Planning de la semaine
       const { data: plan } = await supabase
         .from('plannings').select('id')
         .eq('rayon_id', rayon.id).eq('semaine_debut', debut).single();
@@ -137,6 +148,8 @@ export default function Consolidation() {
       result.push({
         id: rayon.id,
         nom: rayon.nom,
+        numero: rayon.numero,
+        depNom: rayon.departements?.nom ?? '—',
         collaborateurs: (cols as Collaborateur[]) ?? [],
         grille,
         hasPlanning: !!plan,
@@ -144,7 +157,10 @@ export default function Consolidation() {
     }
 
     setRayonsData(result);
-    if (result.length > 0 && !activeRayon) setActiveRayon(result[0].id);
+    if (result.length > 0 && (!activeRayon || !result.find(r => r.id === activeRayon))) {
+      setActiveRayon(result[0].id);
+      setActiveDep(result[0].depNom);
+    }
     setLoading(false);
   }
 
@@ -161,17 +177,16 @@ export default function Consolidation() {
       if (!firstPage) doc.addPage();
       firstPage = false;
 
-      // En-tête
       doc.setFillColor(37, 99, 235);
       doc.rect(0, 0, pageW, 24, 'F');
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(13);
       doc.setFont('helvetica', 'bold');
-      doc.text(`PLANNING — ${rayon.nom}`, margin, 11);
+      doc.text(`PLANNING — ${rayon.numero ? '[' + rayon.numero + '] ' : ''}${rayon.nom}`, margin, 11);
       doc.setFontSize(8);
       doc.setFont('helvetica', 'normal');
       doc.text(
-        `Département : ${depNom}  |  Semaine du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}${!rayon.hasPlanning ? '  |  ⚠ Aucun planning sauvegardé' : ''}`,
+        `Département : ${rayon.depNom}  |  S${numSemaine} — du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}${!rayon.hasPlanning ? '  |  ⚠ Aucun planning sauvegardé' : ''}`,
         margin, 19
       );
 
@@ -232,12 +247,12 @@ export default function Consolidation() {
       doc.setFontSize(7);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(100, 100, 100);
-      doc.text('M = Matin  |  T = Tranche  |  S = Soir  |  R = Repos  |  C = Congé', margin, y);
+      doc.text('M = Matin   |   T = Tranche   |   S = Soir   |   R = Repos   |   C = Congé', margin, y);
       doc.setTextColor(180, 180, 180);
       doc.text(`Imprimé le ${new Date().toLocaleDateString('fr-FR')}`, pageW - margin, y, { align: 'right' });
     }
 
-    doc.save(`consolidation_${depNom.toLowerCase().replace(/\s+/g, '_')}_${formatDate(semaine)}.pdf`);
+    doc.save(`consolidation_${depNomGlobal.toLowerCase().replace(/\s+/g, '_')}_S${numSemaine}_${formatDate(semaine)}.pdf`);
   }
 
   function handleExportExcel() {
@@ -260,10 +275,8 @@ export default function Consolidation() {
       });
 
       const wsData = [
-        [`PLANNING ${rayon.nom} — ${depNom} — Semaine du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}`],
-        [],
-        headers,
-        ...rows,
+        [`PLANNING ${rayon.nom} — ${rayon.depNom} — S${numSemaine} — du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}`],
+        [], headers, ...rows,
       ];
 
       const ws = XLSX.utils.aoa_to_sheet(wsData);
@@ -271,22 +284,28 @@ export default function Consolidation() {
       XLSX.utils.book_append_sheet(wb, ws, rayon.nom.substring(0, 31));
     }
 
-    XLSX.writeFile(wb, `consolidation_${depNom.toLowerCase().replace(/\s+/g, '_')}_${formatDate(semaine)}.xlsx`);
+    XLSX.writeFile(wb, `consolidation_${depNomGlobal.toLowerCase().replace(/\s+/g, '_')}_S${numSemaine}_${formatDate(semaine)}.xlsx`);
   }
 
   const activeData = rayonsData.find(r => r.id === activeRayon);
-  const semaineLabel = `${formatDisplay(semaine)} – ${formatDisplay(addDays(semaine, 6))}`;
+  const semaineLabel = `S${numSemaine} — ${formatDisplay(semaine)} au ${formatDisplay(addDays(semaine, 6))}`;
+
+  // Grouper par département
+  const grouped: Record<string, RayonData[]> = {};
+  for (const r of rayonsData) {
+    if (!grouped[r.depNom]) grouped[r.depNom] = [];
+    grouped[r.depNom].push(r);
+  }
 
   return (
     <div className="space-y-4">
 
-      {/* Contrôles */}
       <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
         <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2">
           <button onClick={() => setSemaine(d => getLundi(addDays(d, -7)))} className="p-1 hover:bg-gray-100 rounded-lg">
             <ChevronLeft className="w-4 h-4" />
           </button>
-          <span className="text-sm font-medium w-32 text-center">{semaineLabel}</span>
+          <span className="text-sm font-medium w-40 text-center">{semaineLabel}</span>
           <button onClick={() => setSemaine(d => getLundi(addDays(d, 7)))} className="p-1 hover:bg-gray-100 rounded-lg">
             <ChevronRight className="w-4 h-4" />
           </button>
@@ -312,7 +331,6 @@ export default function Consolidation() {
         )}
       </div>
 
-      {/* Stats rapides */}
       {rayonsData.length > 0 && (
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-white rounded-2xl p-4 border border-gray-100 text-center">
@@ -345,23 +363,31 @@ export default function Consolidation() {
         </div>
       ) : (
         <>
-          {/* Onglets rayons */}
-          <div className="flex gap-2 flex-wrap">
-            {rayonsData.map(r => (
-              <button
-                key={r.id}
-                onClick={() => setActiveRayon(r.id)}
-                className={`px-4 py-2 rounded-xl text-sm font-medium transition flex items-center gap-2 ${
-                  activeRayon === r.id
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white border border-gray-200 text-gray-600 hover:border-blue-300'
-                }`}
-              >
-                {r.nom}
-                {!r.hasPlanning && (
-                  <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" title="Pas de planning" />
-                )}
-              </button>
+          {/* Onglets groupés par département */}
+          <div className="space-y-3">
+            {Object.entries(grouped).map(([depNom, depRayons]) => (
+              <div key={depNom}>
+                <p className="text-xs font-semibold text-gray-400 uppercase mb-1.5 px-1">{depNom}</p>
+                <div className="flex gap-2 flex-wrap">
+                  {depRayons.map(r => (
+                    <button
+                      key={r.id}
+                      onClick={() => { setActiveRayon(r.id); setActiveDep(depNom); }}
+                      className={`px-4 py-2 rounded-xl text-sm font-medium transition flex items-center gap-2 ${
+                        activeRayon === r.id
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-white border border-gray-200 text-gray-600 hover:border-blue-300'
+                      }`}
+                    >
+                      {r.numero && <span className="text-xs opacity-70">[{r.numero}]</span>}
+                      {r.nom}
+                      {!r.hasPlanning && (
+                        <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" title="Pas de planning" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
 
@@ -370,7 +396,11 @@ export default function Consolidation() {
             <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                 <div>
-                  <span className="font-semibold text-gray-900">{activeData.nom}</span>
+                  <span className="font-semibold text-gray-900">
+                    {activeData.numero && <span className="text-gray-400 mr-1">[{activeData.numero}]</span>}
+                    {activeData.nom}
+                  </span>
+                  <span className="ml-2 text-xs text-gray-400">{activeDep}</span>
                   {!activeData.hasPlanning && (
                     <span className="ml-2 text-xs bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full">
                       Aucun planning sauvegardé
@@ -402,7 +432,7 @@ export default function Consolidation() {
                     <tbody className="divide-y divide-gray-50">
                       {activeData.collaborateurs.map(c => {
                         const postes = jours.map(j => activeData.grille[c.id]?.[formatDate(j)] ?? 'R');
-                        const travail = postes.filter(p => ['M', 'AM', 'N'].includes(p)).length;
+                        const travail = postes.filter(p => ['M', 'T', 'S'].includes(p)).length;
                         return (
                           <tr key={c.id} className="hover:bg-gray-50">
                             <td className="px-4 py-2">
