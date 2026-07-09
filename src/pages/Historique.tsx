@@ -6,21 +6,21 @@ import { canAccessAdmin } from '../types';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 
-type Poste = 'M' | 'AM' | 'N' | 'R' | 'C';
+type Poste = 'M' | 'T' | 'S' | 'R' | 'C';
 type Statut = 'brouillon' | 'soumis' | 'valide' | 'rejete';
 
 const POSTE_STYLE: Record<Poste, string> = {
-  M:  'bg-amber-100 text-amber-800',
-  AM: 'bg-blue-100 text-blue-800',
-  N:  'bg-indigo-100 text-indigo-800',
-  R:  'bg-gray-100 text-gray-500',
-  C:  'bg-emerald-100 text-emerald-800',
+  M: 'bg-amber-100 text-amber-800',
+  T: 'bg-blue-100 text-blue-800',
+  S: 'bg-indigo-100 text-indigo-800',
+  R: 'bg-gray-100 text-gray-500',
+  C: 'bg-emerald-100 text-emerald-800',
 };
 
 const POSTE_FILL: Record<Poste, [number, number, number]> = {
   M:  [254, 243, 199],
-  AM: [219, 234, 254],
-  N:  [224, 231, 255],
+  T:  [219, 234, 254],
+  S:  [224, 231, 255],
   R:  [243, 244, 246],
   C:  [209, 250, 229],
 };
@@ -306,7 +306,7 @@ export default function Historique() {
     doc.setFontSize(7);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(100, 100, 100);
-    doc.text('M = Matin  |  AM = Après-midi  |  N = Nuit  |  R = Repos  |  C = Congé', margin, y);
+    doc.text('M = Matin   |   T = Tranche   |   S = Soir   |   R = Repos   |   C = Congé', margin, y);
     doc.save(`historique_${detail.rayonNom.toLowerCase().replace(/\s+/g, '_')}_${formatDate(detail.semaine)}.pdf`);
   }
 
@@ -316,7 +316,7 @@ export default function Historique() {
     const headers = ['Collaborateur', 'Prénom', ...jours.map((j, i) => `${JOURS[i]} ${formatDisplay(j)}`), 'Travail', 'Repos/Congé'];
     const rows = detail.collaborateurs.map(c => {
       const postes = jours.map(j => detail.grille[c.id]?.[formatDate(j)] ?? 'R');
-      const travail = postes.filter(p => ['M', 'AM', 'N'].includes(p)).length;
+      const travail = postes.filter(p => ['M', 'T', 'S'].includes(p)).length;
       const repos = postes.filter(p => ['R', 'C'].includes(p)).length;
       return [c.nom, c.prenom, ...postes, travail, repos];
     });
@@ -342,7 +342,6 @@ export default function Historique() {
   return (
     <div className="space-y-4">
 
-      {/* Navigation mois */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2">
           <button onClick={() => setMois(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))} className="p-1 hover:bg-gray-100 rounded-lg">
@@ -380,7 +379,6 @@ export default function Historique() {
         </select>
       </div>
 
-      {/* Stats semaines du mois */}
       <div className="flex gap-2 overflow-x-auto pb-1">
         {lundis.map(l => {
           const key = formatDate(l);
@@ -403,7 +401,6 @@ export default function Historique() {
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Liste plannings */}
           <div className="space-y-3">
             {Object.entries(grouped)
               .sort(([a], [b]) => b.localeCompare(a))
@@ -438,7 +435,6 @@ export default function Historique() {
               })}
           </div>
 
-          {/* Détail planning */}
           <div>
             {loadingDetail && (
               <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 text-blue-500 animate-spin" /></div>
