@@ -1,32 +1,41 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Save, Loader2, Printer, FileText, Shield, Crown, Search, Plus, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 
-type Poste = 'M' | 'T' | 'S' | 'R' | 'C';
+type Poste = 'M' | 'T' | 'S' | 'R' | 'C' | 'HN' | 'MAL' | 'AT' | 'FOR';
 type TabType = 'permanence' | 'direction';
 
-const POSTES: Poste[] = ['M', 'T', 'S', 'R', 'C'];
+const POSTES_CYCLE: Poste[] = ['M', 'T', 'S', 'R', 'C'];
+const POSTES_SPECIAUX: Poste[] = ['HN', 'MAL', 'AT', 'FOR'];
+const POSTES_TOUS: Poste[] = ['M', 'T', 'S', 'R', 'C', 'HN', 'MAL', 'AT', 'FOR'];
 
 const POSTE_STYLE: Record<Poste, string> = {
-  M: 'bg-amber-100 text-amber-800 border-amber-300',
-  T: 'bg-blue-100 text-blue-800 border-blue-300',
-  S: 'bg-indigo-100 text-indigo-800 border-indigo-300',
-  R: 'bg-gray-100 text-gray-500 border-gray-300',
-  C: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+  M:   'bg-amber-100 text-amber-800 border-amber-300',
+  T:   'bg-blue-100 text-blue-800 border-blue-300',
+  S:   'bg-indigo-100 text-indigo-800 border-indigo-300',
+  R:   'bg-gray-100 text-gray-500 border-gray-300',
+  C:   'bg-emerald-100 text-emerald-800 border-emerald-300',
+  HN:  'bg-teal-100 text-teal-800 border-teal-300',
+  MAL: 'bg-rose-100 text-rose-800 border-rose-300',
+  AT:  'bg-red-100 text-red-800 border-red-300',
+  FOR: 'bg-violet-100 text-violet-800 border-violet-300',
 };
 
 const POSTE_LABEL: Record<Poste, string> = {
   M: 'Matin', T: 'Tranche', S: 'Soir', R: 'Repos', C: 'Congé',
+  HN: 'Horaire Normal', MAL: 'Maladie', AT: 'Accident Travail', FOR: 'Formation',
 };
 
 const POSTE_FILL: Record<Poste, [number, number, number]> = {
   M: [254, 243, 199], T: [219, 234, 254], S: [224, 231, 255], R: [243, 244, 246], C: [209, 250, 229],
+  HN: [204, 251, 241], MAL: [255, 228, 230], AT: [254, 226, 226], FOR: [237, 233, 254],
 };
 
 const JOURS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+const LONG_PRESS_MS = 500;
 
 function getLundi(date: Date): Date {
   const d = new Date(date);
@@ -83,6 +92,10 @@ export default function PlanningDirection() {
   const jours = Array.from({ length: 7 }, (_, i) => addDays(semaine, i));
   const numSemaine = getNumeroSemaine(semaine);
   const semaineLabel = `S${numSemaine} — ${formatDisplay(semaine)} au ${formatDisplay(addDays(semaine, 6))}`;
+
+  const [posteMenu, setPosteMenu] = useState<{ colId: string; jour: string; kind: TabType } | null>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTriggered = useRef(false);
 
   // --- PERMANENCE STATE ---
   const [permPlanningId, setPermPlanningId] = useState<string | null>(null);
@@ -177,11 +190,16 @@ export default function PlanningDirection() {
     setPermMembres(prev => prev.filter(m => m.id !== id));
   }
 
+  function setPermPoste(colId: string, jour: string, poste: Poste) {
+    setPermGrille(prev => ({ ...prev, [colId]: { ...prev[colId], [jour]: poste } }));
+    setPermSaved(false);
+  }
+
   function cyclePermPoste(colId: string, jour: string) {
     setPermGrille(prev => {
       const current: Poste = prev[colId]?.[jour] ?? 'R';
-      const idx = POSTES.indexOf(current);
-      const next = POSTES[(idx + 1) % POSTES.length];
+      const idx = POSTES_CYCLE.indexOf(current);
+      const next = idx === -1 ? POSTES_CYCLE[0] : POSTES_CYCLE[(idx + 1) % POSTES_CYCLE.length];
       return { ...prev, [colId]: { ...prev[colId], [jour]: next } };
     });
     setPermSaved(false);
@@ -220,7 +238,6 @@ export default function PlanningDirection() {
     }));
     setDirCollabs(colsList);
 
-    // Planning "direction" stocké dans plannings_permanence avec type='direction'
     const debutKey = formatDate(semaine);
     const { data: plan } = await supabase
       .from('plannings_permanence').select('id').eq('semaine_debut', debutKey).eq('type', 'direction').single();
@@ -244,11 +261,16 @@ export default function PlanningDirection() {
     setDirLoading(false);
   }
 
+  function setDirPoste(colId: string, jour: string, poste: Poste) {
+    setDirGrille(prev => ({ ...prev, [colId]: { ...prev[colId], [jour]: poste } }));
+    setDirSaved(false);
+  }
+
   function cycleDirPoste(colId: string, jour: string) {
     setDirGrille(prev => {
       const current: Poste = prev[colId]?.[jour] ?? 'R';
-      const idx = POSTES.indexOf(current);
-      const next = POSTES[(idx + 1) % POSTES.length];
+      const idx = POSTES_CYCLE.indexOf(current);
+      const next = idx === -1 ? POSTES_CYCLE[0] : POSTES_CYCLE[(idx + 1) % POSTES_CYCLE.length];
       return { ...prev, [colId]: { ...prev[colId], [jour]: next } };
     });
     setDirSaved(false);
@@ -256,7 +278,6 @@ export default function PlanningDirection() {
 
   async function handleSaveDirection() {
     setDirSaving(true);
-    // Sauvegarde du planning "direction" (type='direction') pour ne pas entrer en collision avec la permanence.
     const debut = formatDate(semaine);
     const { data } = await supabase
       .from('plannings_permanence')
@@ -277,6 +298,34 @@ export default function PlanningDirection() {
     setDirSaving(false);
     setDirSaved(true);
     setTimeout(() => setDirSaved(false), 2000);
+  }
+
+  // ===== Appui long (partagé) =====
+  function handlePressStart(colId: string, jour: string, kind: TabType) {
+    longPressTriggered.current = false;
+    longPressTimer.current = setTimeout(() => {
+      longPressTriggered.current = true;
+      setPosteMenu({ colId, jour, kind });
+    }, LONG_PRESS_MS);
+  }
+
+  function handlePressEnd(colId: string, jour: string, kind: TabType) {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+    if (!longPressTriggered.current) {
+      if (kind === 'permanence') cyclePermPoste(colId, jour);
+      else cycleDirPoste(colId, jour);
+    }
+  }
+
+  function handlePressCancel() {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+  }
+
+  function applyPosteMenuSelection(p: Poste) {
+    if (!posteMenu) return;
+    if (posteMenu.kind === 'permanence') setPermPoste(posteMenu.colId, posteMenu.jour, p);
+    else setDirPoste(posteMenu.colId, posteMenu.jour, p);
+    setPosteMenu(null);
   }
 
   // ===== EXPORTS =====
@@ -326,7 +375,7 @@ export default function PlanningDirection() {
         const poste: Poste = grille[c.id]?.[formatDate(j)] ?? 'R';
         const x = margin + nameColW + i * colW;
         doc.setFillColor(...POSTE_FILL[poste]); doc.rect(x + 1, y + 1, colW - 2, rowH - 2, 'F');
-        doc.setTextColor(30, 30, 30); doc.setFontSize(9); doc.setFont('helvetica', 'bold');
+        doc.setTextColor(30, 30, 30); doc.setFontSize(poste.length > 1 ? 7 : 9); doc.setFont('helvetica', 'bold');
         doc.text(poste, x + colW / 2, y + 7, { align: 'center' });
       });
       y += rowH;
@@ -336,8 +385,8 @@ export default function PlanningDirection() {
     doc.line(margin + nameColW, 28, margin + nameColW, y);
     jours.forEach((_, i) => doc.line(margin + nameColW + i * colW, 28, margin + nameColW + i * colW, y));
     y += 5;
-    doc.setFontSize(7); doc.setTextColor(100, 100, 100);
-    doc.text('M = Matin   |   T = Tranche   |   S = Soir   |   R = Repos   |   C = Congé', margin, y);
+    doc.setFontSize(6.5); doc.setTextColor(100, 100, 100);
+    doc.text('M=Matin  T=Tranche  S=Soir  R=Repos  C=Congé  HN=Horaire Normal  MAL=Maladie  AT=Accident Travail  FOR=Formation', margin, y);
 
     doc.save(`${isPerm ? 'permanence' : 'direction'}_S${numSemaine}.pdf`);
   }
@@ -441,12 +490,22 @@ export default function PlanningDirection() {
         )}
       </div>
 
-      <div className="flex flex-wrap gap-1.5">
-        {POSTES.map(p => (
-          <span key={p} className={`text-xs px-2 py-0.5 rounded-lg border font-medium ${POSTE_STYLE[p]}`}>
-            {p} = {POSTE_LABEL[p]}
-          </span>
-        ))}
+      <div className="space-y-1.5">
+        <div className="flex flex-wrap gap-1.5">
+          {POSTES_CYCLE.map(p => (
+            <span key={p} className={`text-xs px-2 py-0.5 rounded-lg border font-medium ${POSTE_STYLE[p]}`}>
+              {p} = {POSTE_LABEL[p]}
+            </span>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {POSTES_SPECIAUX.map(p => (
+            <span key={p} className={`text-xs px-2 py-0.5 rounded-lg border font-medium ${POSTE_STYLE[p]}`}>
+              {p} = {POSTE_LABEL[p]}
+            </span>
+          ))}
+          <span className="text-xs text-gray-400 ml-1">(via appui long)</span>
+        </div>
       </div>
 
       {/* PERMANENCE TAB */}
@@ -487,8 +546,17 @@ export default function PlanningDirection() {
                         const poste: Poste = permGrille[c.id]?.[dateStr] ?? 'R';
                         return (
                           <td key={i} className="px-1 py-2 text-center">
-                            <button onClick={() => cyclePermPoste(c.id, dateStr)}
-                              className={`w-10 h-8 rounded-lg border font-bold text-xs transition hover:opacity-80 ${POSTE_STYLE[poste]}`}>
+                            <button
+                              onMouseDown={() => handlePressStart(c.id, dateStr, 'permanence')}
+                              onMouseUp={() => handlePressEnd(c.id, dateStr, 'permanence')}
+                              onMouseLeave={handlePressCancel}
+                              onTouchStart={() => handlePressStart(c.id, dateStr, 'permanence')}
+                              onTouchEnd={() => handlePressEnd(c.id, dateStr, 'permanence')}
+                              onTouchCancel={handlePressCancel}
+                              onContextMenu={e => e.preventDefault()}
+                              className={`w-10 h-8 rounded-lg border font-bold transition select-none hover:opacity-80 ${
+                                poste.length > 1 ? 'text-[9px]' : 'text-xs'
+                              } ${POSTE_STYLE[poste]}`}>
                               {poste}
                             </button>
                           </td>
@@ -545,8 +613,17 @@ export default function PlanningDirection() {
                         const poste: Poste = dirGrille[c.id]?.[dateStr] ?? 'R';
                         return (
                           <td key={i} className="px-1 py-2 text-center">
-                            <button onClick={() => cycleDirPoste(c.id, dateStr)}
-                              className={`w-10 h-8 rounded-lg border font-bold text-xs transition hover:opacity-80 ${POSTE_STYLE[poste]}`}>
+                            <button
+                              onMouseDown={() => handlePressStart(c.id, dateStr, 'direction')}
+                              onMouseUp={() => handlePressEnd(c.id, dateStr, 'direction')}
+                              onMouseLeave={handlePressCancel}
+                              onTouchStart={() => handlePressStart(c.id, dateStr, 'direction')}
+                              onTouchEnd={() => handlePressEnd(c.id, dateStr, 'direction')}
+                              onTouchCancel={handlePressCancel}
+                              onContextMenu={e => e.preventDefault()}
+                              className={`w-10 h-8 rounded-lg border font-bold transition select-none hover:opacity-80 ${
+                                poste.length > 1 ? 'text-[9px]' : 'text-xs'
+                              } ${POSTE_STYLE[poste]}`}>
                               {poste}
                             </button>
                           </td>
@@ -601,6 +678,32 @@ export default function PlanningDirection() {
                   </button>
                 ))
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Menu de sélection (appui long) */}
+      {posteMenu && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4" onClick={() => setPosteMenu(null)}>
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xs" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h3 className="font-semibold text-sm">Choisir un code</h3>
+              <button onClick={() => setPosteMenu(null)} className="p-1.5 hover:bg-gray-100 rounded-lg">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-4 grid grid-cols-3 gap-2">
+              {POSTES_TOUS.map(p => (
+                <button
+                  key={p}
+                  onClick={() => applyPosteMenuSelection(p)}
+                  className={`flex flex-col items-center gap-1 py-3 rounded-xl border font-bold transition hover:opacity-80 ${POSTE_STYLE[p]}`}
+                >
+                  <span className="text-sm">{p}</span>
+                  <span className="text-[9px] font-normal leading-tight text-center px-1">{POSTE_LABEL[p]}</span>
+                </button>
+              ))}
             </div>
           </div>
         </div>
