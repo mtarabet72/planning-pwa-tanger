@@ -12,14 +12,12 @@ const FONCTION_LABEL: Record<Fonction, string> = {
   chef_departement: 'Chef de Département',
 };
 
-
 const FONCTION_STYLE: Record<Fonction, string> = {
   employe: 'bg-gray-100 text-gray-600',
   chef_rayon: 'bg-purple-50 text-purple-700',
   assistante: 'bg-blue-50 text-blue-700',
   chef_departement: 'bg-amber-50 text-amber-700',
 };
-
 
 interface Collaborateur {
   id: string;
@@ -357,7 +355,7 @@ export default function Collaborateurs() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Fonction</label>
-                    <select
+                <select
                   value={form.fonction}
                   onChange={e => setForm(f => ({ ...f, fonction: e.target.value as Fonction }))}
                   className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
