@@ -98,7 +98,6 @@ export default function PlanningDirection() {
   // --- DIRECTION STATE ---
   const [dirCollabs, setDirCollabs] = useState<Collaborateur[]>([]);
   const [dirGrille, setDirGrille] = useState<Grille>({});
-  const [dirPlanningId, setDirPlanningId] = useState<string | null>(null);
   const [dirLoading, setDirLoading] = useState(false);
   const [dirSaving, setDirSaving] = useState(false);
   const [dirSaved, setDirSaved] = useState(false);
@@ -210,7 +209,6 @@ export default function PlanningDirection() {
   async function loadDirection() {
     setDirLoading(true);
     setDirGrille({});
-    setDirPlanningId(null);
 
     const { data: cols } = await supabase
       .from('collaborateurs').select('id, nom, prenom, departements(nom)')
@@ -234,7 +232,6 @@ export default function PlanningDirection() {
     }
 
     if (plan) {
-      setDirPlanningId(plan.id);
       const { data: lignes } = await supabase
         .from('permanence_lignes').select('*').eq('planning_id', plan.id);
       for (const l of lignes ?? []) {
@@ -266,7 +263,6 @@ export default function PlanningDirection() {
       .upsert({ semaine_debut: debut, type: 'direction', created_by: profile?.id }, { onConflict: 'semaine_debut,type' })
       .select('id').single();
     const pid = data?.id ?? null;
-    setDirPlanningId(pid);
     if (!pid) { setDirSaving(false); return; }
 
     const lignes = [];
