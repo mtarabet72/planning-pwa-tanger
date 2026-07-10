@@ -11,7 +11,7 @@ const FONCTION_LABEL: Record<Fonction, string> = {
   assistante: 'Assistante',
   chef_departement: 'Chef de Département',
 };
-};
+
 
 const FONCTION_STYLE: Record<Fonction, string> = {
   employe: 'bg-gray-100 text-gray-600',
@@ -19,7 +19,7 @@ const FONCTION_STYLE: Record<Fonction, string> = {
   assistante: 'bg-blue-50 text-blue-700',
   chef_departement: 'bg-amber-50 text-amber-700',
 };
-};
+
 
 interface Collaborateur {
   id: string;
