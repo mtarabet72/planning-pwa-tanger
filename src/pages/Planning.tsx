@@ -92,6 +92,7 @@ interface Collaborateur {
   id: string;
   nom: string;
   prenom: string;
+  fonction?: string;
 }
 
 interface Rayon {
@@ -165,8 +166,10 @@ export default function Planning() {
 
     const debut = formatDate(semaine);
     const { data: cols } = await supabase
-      .from('collaborateurs').select('id, nom, prenom')
-      .eq('rayon_id', rayonId).eq('actif', true).order('nom');
+      .from('collaborateurs').select('id, nom, prenom, fonction')
+      .eq('rayon_id', rayonId).eq('actif', true)
+      .neq('fonction', 'chef_rayon')
+      .order('nom');
     setCollaborateurs((cols as Collaborateur[]) ?? []);
 
     const { data: plan } = await supabase
