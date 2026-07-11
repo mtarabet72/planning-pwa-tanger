@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Save, Loader2, Printer, FileText, Shield, Crown, Search, Plus, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Save, Loader2, Printer, FileText, Shield, Crown, Search, Plus, X, Settings, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import jsPDF from 'jspdf';
@@ -29,17 +29,19 @@ const POSTE_LABEL: Record<Poste, string> = {
   HN: 'Horaire Normal', MAL: 'Maladie', AT: 'Accident Travail', FOR: 'Formation',
 };
 
-// Horaires fixes affichés dans la vue "Jour" (façon planning de permanence)
-const CRENEAUX: { poste: 'M' | 'T' | 'S'; label: string; horaire: string }[] = [
-  { poste: 'M', label: 'Matin', horaire: '07:00 – 14:30' },
-  { poste: 'T', label: 'Tranche', horaire: '14:30 – 22:00' },
-  { poste: 'S', label: 'Soir', horaire: '15:30 – 23:00' },
-];
+// Structure des créneaux de permanence (les horaires sont configurables, voir état `horaires`)
+const CRENEAU_LABEL: Record<'M' | 'T' | 'S', string> = { M: 'Matin', T: 'Tranche', S: 'Soir' };
+const CRENEAU_ORDRE: ('M' | 'T' | 'S')[] = ['M', 'T', 'S'];
 const CRENEAU_DOT: Record<'M' | 'T' | 'S', string> = {
   M: 'bg-amber-500', T: 'bg-blue-500', S: 'bg-indigo-900',
 };
 const CRENEAU_BORDER: Record<'M' | 'T' | 'S', string> = {
   M: 'border-l-amber-500', T: 'border-l-blue-500', S: 'border-l-indigo-900',
+};
+const HORAIRES_DEFAUT: Record<'M' | 'T' | 'S', { debut: string; fin: string }> = {
+  M: { debut: '07:00', fin: '14:30' },
+  T: { debut: '14:30', fin: '22:00' },
+  S: { debut: '15:30', fin: '23:00' },
 };
 
 const POSTE_FILL: Record<Poste, [number, number, number]> = {
@@ -123,6 +125,39 @@ export default function PlanningDirection() {
   const [permVue, setPermVue] = useState<'jour' | 'grille'>('jour');
   const [slotPicker, setSlotPicker] = useState<{ dateStr: string; poste: 'M' | 'T' | 'S' } | null>(null);
   const [searchSlot, setSearchSlot] = useState('');
+
+  // --- HORAIRES DES CRÉNEAUX (configurable, change selon la saison) ---
+  const [horaires, setHoraires] = useState<Record<'M' | 'T' | 'S', { debut: string; fin: string }>>(HORAIRES_DEFAUT);
+  const [showHoraires, setShowHoraires] = useState(false);
+  const [horairesDraft, setHorairesDraft] = useState<Record<'M' | 'T' | 'S', { debut: string; fin: string }>>(HORAIRES_DEFAUT);
+  const [horairesSaving, setHorairesSaving] = useState(false);
+
+  useEffect(() => { loadHoraires(); }, []);
+
+  async function loadHoraires() {
+    const { data } = await supabase.from('permanence_horaires').select('poste, heure_debut, heure_fin');
+    if (data && data.length) {
+      const h = { ...HORAIRES_DEFAUT };
+      for (const row of data as { poste: 'M' | 'T' | 'S'; heure_debut: string; heure_fin: string }[]) {
+        h[row.poste] = { debut: row.heure_debut, fin: row.heure_fin };
+      }
+      setHoraires(h);
+    }
+  }
+
+  function openHorairesEditor() {
+    setHorairesDraft(horaires);
+    setShowHoraires(true);
+  }
+
+  async function handleSaveHoraires() {
+    setHorairesSaving(true);
+    const rows = CRENEAU_ORDRE.map(p => ({ poste: p, heure_debut: horairesDraft[p].debut, heure_fin: horairesDraft[p].fin }));
+    await supabase.from('permanence_horaires').upsert(rows, { onConflict: 'poste' });
+    setHoraires(horairesDraft);
+    setHorairesSaving(false);
+    setShowHoraires(false);
+  }
 
   // --- DIRECTION STATE ---
   const [dirCollabs, setDirCollabs] = useState<Collaborateur[]>([]);
@@ -511,6 +546,12 @@ export default function PlanningDirection() {
               </div>
             )}
             <button
+              onClick={openHorairesEditor}
+              className="flex items-center gap-2 bg-white border border-gray-200 text-gray-600 px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-50 transition"
+            >
+              <Settings className="w-4 h-4" /> Horaires
+            </button>
+            <button
               onClick={() => { setShowAddMembre(true); loadAllCollabs(); }}
               className="flex items-center gap-2 bg-amber-500 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-amber-600 transition"
             >
@@ -600,29 +641,29 @@ export default function PlanningDirection() {
                       </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 flex-1">
-                      {CRENEAUX.map(cr => {
-                        const assigne = getAssigne(dateStr, cr.poste);
+                      {CRENEAU_ORDRE.map(poste => {
+                        const assigne = getAssigne(dateStr, poste);
                         return (
                           <button
-                            key={cr.poste}
-                            onClick={() => setSlotPicker({ dateStr, poste: cr.poste })}
-                            className={`text-left border border-gray-100 border-l-4 ${CRENEAU_BORDER[cr.poste]} rounded-xl px-3 py-2 hover:bg-gray-50 transition group relative`}
+                            key={poste}
+                            onClick={() => setSlotPicker({ dateStr, poste })}
+                            className={`text-left border border-gray-100 border-l-4 ${CRENEAU_BORDER[poste]} rounded-xl px-3 py-2 hover:bg-gray-50 transition group relative`}
                           >
                             <div className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">
-                              <span className={`w-1.5 h-1.5 rounded-full ${CRENEAU_DOT[cr.poste]}`} />
-                              {cr.label}
+                              <span className={`w-1.5 h-1.5 rounded-full ${CRENEAU_DOT[poste]}`} />
+                              {CRENEAU_LABEL[poste]}
                             </div>
                             {assigne ? (
                               <>
                                 <div className="text-sm font-semibold text-gray-800 truncate">{assigne.nom} {assigne.prenom}</div>
-                                <div className="text-[11px] text-gray-400">{cr.horaire}</div>
+                                <div className="text-[11px] text-gray-400">{horaires[poste].debut} – {horaires[poste].fin}</div>
                               </>
                             ) : (
                               <div className="text-sm text-gray-300 italic">Non assigné</div>
                             )}
                             {assigne && (
                               <span
-                                onClick={e => { e.stopPropagation(); clearSlot(dateStr, cr.poste); }}
+                                onClick={e => { e.stopPropagation(); clearSlot(dateStr, poste); }}
                                 className="absolute top-1.5 right-1.5 p-1 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition"
                               >
                                 <X className="w-3 h-3" />
@@ -637,9 +678,9 @@ export default function PlanningDirection() {
               })}
             </div>
             <div className="flex flex-wrap items-center gap-4 px-5 py-3 bg-gray-50 border-t border-gray-100 text-[11px] text-gray-500">
-              {CRENEAUX.map(cr => (
-                <span key={cr.poste} className="flex items-center gap-1.5">
-                  <span className={`w-2 h-2 rounded-full ${CRENEAU_DOT[cr.poste]}`} /> {cr.label}
+              {CRENEAU_ORDRE.map(poste => (
+                <span key={poste} className="flex items-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-full ${CRENEAU_DOT[poste]}`} /> {CRENEAU_LABEL[poste]} ({horaires[poste].debut}–{horaires[poste].fin})
                 </span>
               ))}
               <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gray-300" /> Non assigné</span>
@@ -810,6 +851,66 @@ export default function PlanningDirection() {
         </div>
       )}
 
+      {/* Modal configuration des horaires de permanence */}
+      {showHoraires && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4" onClick={() => setShowHoraires(false)}>
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-6 border-b border-gray-100">
+              <div>
+                <h3 className="font-semibold text-lg flex items-center gap-2"><Clock className="w-5 h-5 text-amber-500" /> Horaires de permanence</h3>
+                <p className="text-xs text-gray-400 mt-0.5">Modifiable selon la saison — s'applique à tous les plannings à venir.</p>
+              </div>
+              <button onClick={() => setShowHoraires(false)} className="p-2 hover:bg-gray-100 rounded-xl">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              {CRENEAU_ORDRE.map(poste => (
+                <div key={poste} className={`border border-gray-100 border-l-4 ${CRENEAU_BORDER[poste]} rounded-xl p-4`}>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
+                    <span className={`w-2 h-2 rounded-full ${CRENEAU_DOT[poste]}`} /> {CRENEAU_LABEL[poste]}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1">
+                      <label className="block text-[11px] text-gray-400 mb-1">Début</label>
+                      <input
+                        type="time"
+                        value={horairesDraft[poste].debut}
+                        onChange={e => setHorairesDraft(prev => ({ ...prev, [poste]: { ...prev[poste], debut: e.target.value } }))}
+                        className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                    </div>
+                    <span className="text-gray-300 mt-4">→</span>
+                    <div className="flex-1">
+                      <label className="block text-[11px] text-gray-400 mb-1">Fin</label>
+                      <input
+                        type="time"
+                        value={horairesDraft[poste].fin}
+                        onChange={e => setHorairesDraft(prev => ({ ...prev, [poste]: { ...prev[poste], fin: e.target.value } }))}
+                        className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2 p-6 pt-0">
+              <button onClick={() => setShowHoraires(false)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition">
+                Annuler
+              </button>
+              <button
+                onClick={handleSaveHoraires}
+                disabled={horairesSaving}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 disabled:opacity-60 transition"
+              >
+                {horairesSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                Enregistrer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal assignation créneau (vue Jour) */}
       {slotPicker && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4" onClick={() => { setSlotPicker(null); setSearchSlot(''); }}>
@@ -817,7 +918,7 @@ export default function PlanningDirection() {
             <div className="flex items-center justify-between p-6 border-b border-gray-100">
               <div>
                 <h3 className="font-semibold text-lg">
-                  {CRENEAUX.find(c => c.poste === slotPicker.poste)?.label} — {CRENEAUX.find(c => c.poste === slotPicker.poste)?.horaire}
+                  {CRENEAU_LABEL[slotPicker.poste]} — {horaires[slotPicker.poste].debut} – {horaires[slotPicker.poste].fin}
                 </h3>
                 <p className="text-xs text-gray-400 mt-0.5">
                   {new Date(slotPicker.dateStr + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: 'long' })}
