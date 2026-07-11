@@ -6,23 +6,24 @@ import { canAccessAdmin } from '../types';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 
-type Poste = 'M' | 'T' | 'S' | 'R' | 'C';
+type Poste = 'M' | 'T' | 'S' | 'R' | 'C' | 'HN' | 'MAL' | 'AT' | 'FOR';
 type Statut = 'brouillon' | 'soumis' | 'valide' | 'rejete';
 
 const POSTE_STYLE: Record<Poste, string> = {
-  M: 'bg-amber-100 text-amber-800',
-  T: 'bg-blue-100 text-blue-800',
-  S: 'bg-indigo-100 text-indigo-800',
-  R: 'bg-gray-100 text-gray-500',
-  C: 'bg-emerald-100 text-emerald-800',
+  M:   'bg-amber-100 text-amber-800',
+  T:   'bg-blue-100 text-blue-800',
+  S:   'bg-indigo-100 text-indigo-800',
+  R:   'bg-gray-100 text-gray-500',
+  C:   'bg-emerald-100 text-emerald-800',
+  HN:  'bg-teal-100 text-teal-800',
+  MAL: 'bg-rose-100 text-rose-800',
+  AT:  'bg-red-100 text-red-800',
+  FOR: 'bg-violet-100 text-violet-800',
 };
 
 const POSTE_FILL: Record<Poste, [number, number, number]> = {
-  M:  [254, 243, 199],
-  T:  [219, 234, 254],
-  S:  [224, 231, 255],
-  R:  [243, 244, 246],
-  C:  [209, 250, 229],
+  M: [254, 243, 199], T: [219, 234, 254], S: [224, 231, 255], R: [243, 244, 246], C: [209, 250, 229],
+  HN: [204, 251, 241], MAL: [255, 228, 230], AT: [254, 226, 226], FOR: [237, 233, 254],
 };
 
 const STATUT_STYLE: Record<Statut, string> = {
@@ -290,7 +291,7 @@ export default function Historique() {
         doc.setFillColor(...POSTE_FILL[poste]);
         doc.rect(x + 1, y + 1, colW - 2, rowH - 2, 'F');
         doc.setTextColor(30, 30, 30);
-        doc.setFontSize(9);
+        doc.setFontSize(poste.length > 1 ? 6.5 : 9);
         doc.setFont('helvetica', 'bold');
         doc.text(poste, x + colW / 2, y + 6.5, { align: 'center' });
       });
@@ -303,29 +304,30 @@ export default function Historique() {
     jours.forEach((_, i) => doc.line(margin + nameColW + i * colW, 28, margin + nameColW + i * colW, y));
 
     y += 5;
-    doc.setFontSize(7);
+    doc.setFontSize(6.5);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(100, 100, 100);
-    doc.text('M = Matin   |   T = Tranche   |   S = Soir   |   R = Repos   |   C = Congé', margin, y);
+    doc.text('M=Matin  T=Tranche  S=Soir  R=Repos  C=Congé  HN=Horaire Normal  MAL=Maladie  AT=Accident Travail  FOR=Formation', margin, y);
     doc.save(`historique_${detail.rayonNom.toLowerCase().replace(/\s+/g, '_')}_${formatDate(detail.semaine)}.pdf`);
   }
 
   function exportExcel() {
     if (!detail) return;
     const jours = Array.from({ length: 7 }, (_, i) => addDays(detail.semaine, i));
-    const headers = ['Collaborateur', 'Prénom', ...jours.map((j, i) => `${JOURS[i]} ${formatDisplay(j)}`), 'Travail', 'Repos/Congé'];
+    const headers = ['Collaborateur', 'Prénom', ...jours.map((j, i) => `${JOURS[i]} ${formatDisplay(j)}`), 'Travail', 'Repos/Congé', 'Absences'];
     const rows = detail.collaborateurs.map(c => {
       const postes = jours.map(j => detail.grille[c.id]?.[formatDate(j)] ?? 'R');
-      const travail = postes.filter(p => ['M', 'T', 'S'].includes(p)).length;
+      const travail = postes.filter(p => ['M', 'T', 'S', 'HN'].includes(p)).length;
       const repos = postes.filter(p => ['R', 'C'].includes(p)).length;
-      return [c.nom, c.prenom, ...postes, travail, repos];
+      const absences = postes.filter(p => ['MAL', 'AT', 'FOR'].includes(p)).length;
+      return [c.nom, c.prenom, ...postes, travail, repos, absences];
     });
     const wsData = [
       [`PLANNING ${detail.rayonNom} — ${detail.depNom} — Semaine du ${formatDisplayLong(detail.semaine)} au ${formatDisplayLong(addDays(detail.semaine, 6))}`],
       [], headers, ...rows,
     ];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
-    ws['!cols'] = [{ wch: 18 }, { wch: 14 }, ...jours.map(() => ({ wch: 10 })), { wch: 10 }, { wch: 12 }];
+    ws['!cols'] = [{ wch: 18 }, { wch: 14 }, ...jours.map(() => ({ wch: 10 })), { wch: 10 }, { wch: 12 }, { wch: 10 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Planning');
     XLSX.writeFile(wb, `historique_${detail.rayonNom.toLowerCase().replace(/\s+/g, '_')}_${formatDate(detail.semaine)}.xlsx`);
@@ -487,7 +489,9 @@ export default function Historique() {
                             const poste: Poste = detail.grille[c.id]?.[formatDate(j)] ?? 'R';
                             return (
                               <td key={i} className="px-1 py-2 text-center">
-                                <span className={`inline-flex items-center justify-center w-8 h-7 rounded-lg text-xs font-bold ${POSTE_STYLE[poste]}`}>
+                                <span className={`inline-flex items-center justify-center w-8 h-7 rounded-lg ${
+                                  poste.length > 1 ? 'text-[9px]' : 'text-xs'
+                                } font-bold ${POSTE_STYLE[poste]}`}>
                                   {poste}
                                 </span>
                               </td>
