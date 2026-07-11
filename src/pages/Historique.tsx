@@ -214,7 +214,8 @@ export default function Historique() {
 
     const { data: cols } = await supabase
       .from('collaborateurs').select('id, nom, prenom')
-      .eq('rayon_id', p.rayon_id).eq('actif', true).order('nom');
+      .eq('rayon_id', p.rayon_id).eq('actif', true)
+      .neq('fonction', 'chef_rayon').order('nom');
 
     const { data: lignes } = await supabase
       .from('planning_lignes').select('*').eq('planning_id', p.id);
