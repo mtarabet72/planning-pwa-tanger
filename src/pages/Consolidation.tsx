@@ -81,12 +81,39 @@ interface RayonData {
   hasPlanning: boolean;
 }
 
+interface EncadrementCollaborateur extends Collaborateur {
+  fonction: string;
+  rayonNom: string;
+}
+
+interface EncadrementData {
+  departementId: string;
+  depNom: string;
+  collaborateurs: EncadrementCollaborateur[];
+  grille: Record<string, Record<string, Poste>>;
+  hasPlanning: boolean;
+}
+
+interface PermanenceCollaborateur extends Collaborateur {
+  rayonNom: string;
+}
+
+interface PermanenceData {
+  membres: PermanenceCollaborateur[];
+  grille: Record<string, Record<string, Poste>>;
+  hasPlanning: boolean;
+}
+
+const FONCTION_LABEL: Record<string, string> = { chef_rayon: 'Chef de Rayon', assistante: 'Assistante' };
+
 export default function Consolidation() {
   const { profile } = useAuth();
   const isAdmin = canAccessAdmin(profile?.role ?? 'chef_rayon');
 
   const [semaine, setSemaine] = useState<Date>(getLundi(new Date()));
   const [rayonsData, setRayonsData] = useState<RayonData[]>([]);
+  const [encadrementData, setEncadrementData] = useState<EncadrementData[]>([]);
+  const [permanenceData, setPermanenceData] = useState<PermanenceData>({ membres: [], grille: {}, hasPlanning: false });
   const [activeRayon, setActiveRayon] = useState<string>('');
   const [activeDep, setActiveDep] = useState<string>('');
   const [depNomGlobal, setDepNomGlobal] = useState<string>('');
@@ -163,6 +190,77 @@ export default function Consolidation() {
       setActiveRayon(result[0].id);
       setActiveDep(result[0].depNom);
     }
+
+    // ---- Encadrement (Chefs de Rayon / Assistantes), par département ----
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const depIds = Array.from(new Set((rayons as any[]).map(r => r.departement_id as string)));
+    const encResult: EncadrementData[] = [];
+    for (const depId of depIds) {
+      const { data: depRow } = await supabase.from('departements').select('nom').eq('id', depId).single();
+      const { data: encCols } = await supabase
+        .from('collaborateurs').select('id, nom, prenom, fonction, rayons(nom)')
+        .eq('departement_id', depId).eq('actif', true)
+        .in('fonction', ['chef_rayon', 'assistante']).order('fonction').order('nom');
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const encColsList: EncadrementCollaborateur[] = ((encCols ?? []) as any[]).map(c => ({
+        id: c.id, nom: c.nom, prenom: c.prenom, fonction: c.fonction, rayonNom: c.rayons?.nom ?? '—',
+      }));
+
+      const { data: encPlan } = await supabase
+        .from('plannings_encadrement').select('id').eq('departement_id', depId).eq('semaine_debut', debut).single();
+
+      const encGrille: Record<string, Record<string, Poste>> = {};
+      if (encPlan) {
+        const { data: encLignes } = await supabase
+          .from('planning_encadrement_lignes').select('*').eq('planning_id', encPlan.id);
+        for (const l of encLignes ?? []) {
+          if (!encGrille[l.collaborateur_id]) encGrille[l.collaborateur_id] = {};
+          encGrille[l.collaborateur_id][l.jour] = l.poste as Poste;
+        }
+      } else {
+        for (const c of encColsList) {
+          encGrille[c.id] = {};
+          for (const j of jours) encGrille[c.id][formatDate(j)] = 'R';
+        }
+      }
+
+      if (encColsList.length) {
+        encResult.push({
+          departementId: depId,
+          depNom: depRow?.nom ?? '—',
+          collaborateurs: encColsList,
+          grille: encGrille,
+          hasPlanning: !!encPlan,
+        });
+      }
+    }
+    setEncadrementData(encResult);
+
+    // ---- Permanence (magasin, non scopée par département) ----
+    const { data: permPlan } = await supabase
+      .from('plannings_permanence').select('id').eq('type', 'permanence').eq('semaine_debut', debut).single();
+
+    let permMembresList: PermanenceCollaborateur[] = [];
+    const permGrilleObj: Record<string, Record<string, Poste>> = {};
+    if (permPlan) {
+      const { data: membresRaw } = await supabase
+        .from('permanence_membres').select('collaborateur_id, collaborateurs(nom, prenom, rayons(nom))')
+        .eq('planning_id', permPlan.id);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      permMembresList = ((membresRaw ?? []) as any[]).map(m => ({
+        id: m.collaborateur_id, nom: m.collaborateurs?.nom ?? '', prenom: m.collaborateurs?.prenom ?? '',
+        rayonNom: m.collaborateurs?.rayons?.nom ?? '—',
+      }));
+      const { data: permLignes } = await supabase
+        .from('permanence_lignes').select('*').eq('planning_id', permPlan.id);
+      for (const l of permLignes ?? []) {
+        if (!permGrilleObj[l.collaborateur_id]) permGrilleObj[l.collaborateur_id] = {};
+        permGrilleObj[l.collaborateur_id][l.jour] = l.poste as Poste;
+      }
+    }
+    setPermanenceData({ membres: permMembresList, grille: permGrilleObj, hasPlanning: !!permPlan });
+
     setLoading(false);
   }
 
@@ -172,30 +270,33 @@ export default function Consolidation() {
     const margin = 14;
     const nameColW = 42;
     const colW = (pageW - margin * 2 - nameColW) / 7;
-    let firstPage = true;
+    let pageStarted = false;
 
-    for (const rayon of rayonsData) {
-      if (!rayon.collaborateurs.length) continue;
-      if (!firstPage) doc.addPage();
-      firstPage = false;
+    function drawPage(
+      title: string,
+      subtitle: string,
+      headerColor: [number, number, number],
+      headBg: [number, number, number],
+      rows: { id: string; nom: string; prenom: string; sub?: string }[],
+      grille: Record<string, Record<string, Poste>>,
+    ) {
+      if (pageStarted) doc.addPage();
+      pageStarted = true;
 
-      doc.setFillColor(37, 99, 235);
+      doc.setFillColor(...headerColor);
       doc.rect(0, 0, pageW, 24, 'F');
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(13);
       doc.setFont('helvetica', 'bold');
-      doc.text(`PLANNING — ${rayon.numero ? '[' + rayon.numero + '] ' : ''}${rayon.nom}`, margin, 11);
+      doc.text(title, margin, 11);
       doc.setFontSize(8);
       doc.setFont('helvetica', 'normal');
-      doc.text(
-        `Département : ${rayon.depNom}  |  S${numSemaine} — du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}${!rayon.hasPlanning ? '  |  ⚠ Aucun planning sauvegardé' : ''}`,
-        margin, 19
-      );
+      doc.text(subtitle, margin, 19);
 
       let y = 28;
       const headerH = 9;
 
-      doc.setFillColor(240, 242, 255);
+      doc.setFillColor(...headBg);
       doc.rect(margin, y, nameColW, headerH, 'F');
       doc.setTextColor(50, 50, 50);
       doc.setFontSize(8);
@@ -204,7 +305,7 @@ export default function Consolidation() {
 
       jours.forEach((j, i) => {
         const x = margin + nameColW + i * colW;
-        doc.setFillColor(240, 242, 255);
+        doc.setFillColor(...headBg);
         doc.rect(x, y, colW, headerH, 'F');
         doc.setFontSize(7.5);
         doc.text(`${JOURS[i]} ${formatDisplay(j)}`, x + colW / 2, y + 6, { align: 'center' });
@@ -212,7 +313,7 @@ export default function Consolidation() {
       y += headerH;
 
       const rowH = 10;
-      rayon.collaborateurs.forEach((c, idx) => {
+      rows.forEach((c, idx) => {
         const bg: [number, number, number] = idx % 2 === 0 ? [255, 255, 255] : [249, 250, 251];
         doc.setFillColor(...bg);
         doc.rect(margin, y, pageW - margin * 2, rowH, 'F');
@@ -223,10 +324,10 @@ export default function Consolidation() {
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7);
         doc.setTextColor(120, 120, 120);
-        doc.text(c.prenom, margin + 2, y + 8.5);
+        doc.text(`${c.prenom}${c.sub ? ' — ' + c.sub : ''}`, margin + 2, y + 8.5);
 
         jours.forEach((j, i) => {
-          const poste: Poste = rayon.grille[c.id]?.[formatDate(j)] ?? 'R';
+          const poste: Poste = grille[c.id]?.[formatDate(j)] ?? 'R';
           const x = margin + nameColW + i * colW;
           doc.setFillColor(...POSTE_FILL[poste]);
           doc.rect(x + 1, y + 1, colW - 2, rowH - 2, 'F');
@@ -254,12 +355,56 @@ export default function Consolidation() {
       doc.text(`Imprimé le ${new Date().toLocaleDateString('fr-FR')}`, pageW - margin, y, { align: 'right' });
     }
 
+    const periode = `S${numSemaine} — du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}`;
+
+    // ---- 1. Plannings des employés (par rayon) ----
+    for (const rayon of rayonsData) {
+      if (!rayon.collaborateurs.length) continue;
+      drawPage(
+        `PLANNING EMPLOYÉS — ${rayon.numero ? '[' + rayon.numero + '] ' : ''}${rayon.nom}`,
+        `Département : ${rayon.depNom}  |  ${periode}${!rayon.hasPlanning ? '  |  ⚠ Aucun planning sauvegardé' : ''}`,
+        [37, 99, 235], [240, 242, 255],
+        rayon.collaborateurs.map(c => ({ id: c.id, nom: c.nom, prenom: c.prenom })),
+        rayon.grille,
+      );
+    }
+
+    // ---- 2. Plannings d'encadrement (Chefs de Rayon / Assistantes), par département ----
+    for (const enc of encadrementData) {
+      if (!enc.collaborateurs.length) continue;
+      drawPage(
+        `PLANNING ENCADREMENT — ${enc.depNom}`,
+        `Chefs de Rayon & Assistantes  |  ${periode}${!enc.hasPlanning ? '  |  ⚠ Aucun planning sauvegardé' : ''}`,
+        [124, 58, 237], [243, 232, 255],
+        enc.collaborateurs.map(c => ({ id: c.id, nom: c.nom, prenom: c.prenom, sub: `${FONCTION_LABEL[c.fonction] ?? c.fonction} — ${c.rayonNom}` })),
+        enc.grille,
+      );
+    }
+
+    // ---- 3. Planning de permanence (magasin) ----
+    if (permanenceData.membres.length) {
+      drawPage(
+        'PLANNING DE PERMANENCE — Magasin',
+        `Responsables de garde  |  ${periode}${!permanenceData.hasPlanning ? '  |  ⚠ Aucun planning sauvegardé' : ''}`,
+        [217, 119, 6], [255, 243, 224],
+        permanenceData.membres.map(c => ({ id: c.id, nom: c.nom, prenom: c.prenom, sub: c.rayonNom })),
+        permanenceData.grille,
+      );
+    }
+
     doc.save(`consolidation_${depNomGlobal.toLowerCase().replace(/\s+/g, '_')}_S${numSemaine}_${formatDate(semaine)}.pdf`);
   }
 
   function handleExportExcel() {
     const wb = XLSX.utils.book_new();
+    const commonCols = () => [{ wch: 18 }, { wch: 14 }, ...jours.map(() => ({ wch: 10 })), { wch: 10 }, { wch: 12 }, { wch: 10 }];
+    const stats = (postes: Poste[]) => ({
+      travail: postes.filter(p => ['M', 'T', 'S', 'HN'].includes(p)).length,
+      repos: postes.filter(p => ['R', 'C'].includes(p)).length,
+      absences: postes.filter(p => ['MAL', 'AT', 'FOR'].includes(p)).length,
+    });
 
+    // ---- 1. Plannings des employés (par rayon) ----
     for (const rayon of rayonsData) {
       if (!rayon.collaborateurs.length) continue;
 
@@ -271,9 +416,7 @@ export default function Consolidation() {
 
       const rows = rayon.collaborateurs.map(c => {
         const postes = jours.map(j => rayon.grille[c.id]?.[formatDate(j)] ?? 'R');
-        const travail = postes.filter(p => ['M', 'T', 'S', 'HN'].includes(p)).length;
-        const repos = postes.filter(p => ['R', 'C'].includes(p)).length;
-        const absences = postes.filter(p => ['MAL', 'AT', 'FOR'].includes(p)).length;
+        const { travail, repos, absences } = stats(postes);
         return [c.nom, c.prenom, ...postes, travail, repos, absences];
       });
 
@@ -283,8 +426,58 @@ export default function Consolidation() {
       ];
 
       const ws = XLSX.utils.aoa_to_sheet(wsData);
-      ws['!cols'] = [{ wch: 18 }, { wch: 14 }, ...jours.map(() => ({ wch: 10 })), { wch: 10 }, { wch: 12 }, { wch: 10 }];
+      ws['!cols'] = commonCols();
       XLSX.utils.book_append_sheet(wb, ws, rayon.nom.substring(0, 31));
+    }
+
+    // ---- 2. Plannings d'encadrement (Chefs de Rayon / Assistantes), par département ----
+    for (const enc of encadrementData) {
+      if (!enc.collaborateurs.length) continue;
+
+      const headers = [
+        'Collaborateur', 'Prénom', 'Fonction', 'Rayon',
+        ...jours.map((j, i) => `${JOURS[i]} ${formatDisplay(j)}`),
+        'Travail', 'Repos/Congé', 'Absences',
+      ];
+
+      const rows = enc.collaborateurs.map(c => {
+        const postes = jours.map(j => enc.grille[c.id]?.[formatDate(j)] ?? 'R');
+        const { travail, repos, absences } = stats(postes);
+        return [c.nom, c.prenom, FONCTION_LABEL[c.fonction] ?? c.fonction, c.rayonNom, ...postes, travail, repos, absences];
+      });
+
+      const wsData = [
+        [`PLANNING ENCADREMENT — ${enc.depNom} — S${numSemaine} — du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}`],
+        [], headers, ...rows,
+      ];
+
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      ws['!cols'] = [{ wch: 18 }, { wch: 14 }, { wch: 16 }, { wch: 16 }, ...jours.map(() => ({ wch: 10 })), { wch: 10 }, { wch: 12 }, { wch: 10 }];
+      XLSX.utils.book_append_sheet(wb, ws, `Enc. ${enc.depNom}`.substring(0, 31));
+    }
+
+    // ---- 3. Planning de permanence (magasin) ----
+    if (permanenceData.membres.length) {
+      const headers = [
+        'Collaborateur', 'Prénom', 'Rayon',
+        ...jours.map((j, i) => `${JOURS[i]} ${formatDisplay(j)}`),
+        'Travail', 'Repos/Congé', 'Absences',
+      ];
+
+      const rows = permanenceData.membres.map(c => {
+        const postes = jours.map(j => permanenceData.grille[c.id]?.[formatDate(j)] ?? 'R');
+        const { travail, repos, absences } = stats(postes);
+        return [c.nom, c.prenom, c.rayonNom, ...postes, travail, repos, absences];
+      });
+
+      const wsData = [
+        [`PLANNING DE PERMANENCE — Magasin — S${numSemaine} — du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}`],
+        [], headers, ...rows,
+      ];
+
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      ws['!cols'] = [{ wch: 18 }, { wch: 14 }, { wch: 16 }, ...jours.map(() => ({ wch: 10 })), { wch: 10 }, { wch: 12 }, { wch: 10 }];
+      XLSX.utils.book_append_sheet(wb, ws, 'Permanence');
     }
 
     XLSX.writeFile(wb, `consolidation_${depNomGlobal.toLowerCase().replace(/\s+/g, '_')}_S${numSemaine}_${formatDate(semaine)}.xlsx`);
