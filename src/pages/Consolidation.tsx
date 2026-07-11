@@ -6,22 +6,23 @@ import { canAccessAdmin } from '../types';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 
-type Poste = 'M' | 'T' | 'S' | 'R' | 'C';
+type Poste = 'M' | 'T' | 'S' | 'R' | 'C' | 'HN' | 'MAL' | 'AT' | 'FOR';
 
 const POSTE_STYLE: Record<Poste, string> = {
-  M: 'bg-amber-100 text-amber-800 border-amber-300',
-  T: 'bg-blue-100 text-blue-800 border-blue-300',
-  S: 'bg-indigo-100 text-indigo-800 border-indigo-300',
-  R: 'bg-gray-100 text-gray-500 border-gray-300',
-  C: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+  M:   'bg-amber-100 text-amber-800 border-amber-300',
+  T:   'bg-blue-100 text-blue-800 border-blue-300',
+  S:   'bg-indigo-100 text-indigo-800 border-indigo-300',
+  R:   'bg-gray-100 text-gray-500 border-gray-300',
+  C:   'bg-emerald-100 text-emerald-800 border-emerald-300',
+  HN:  'bg-teal-100 text-teal-800 border-teal-300',
+  MAL: 'bg-rose-100 text-rose-800 border-rose-300',
+  AT:  'bg-red-100 text-red-800 border-red-300',
+  FOR: 'bg-violet-100 text-violet-800 border-violet-300',
 };
 
 const POSTE_FILL: Record<Poste, [number, number, number]> = {
-  M:  [254, 243, 199],
-  T:  [219, 234, 254],
-  S:  [224, 231, 255],
-  R:  [243, 244, 246],
-  C:  [209, 250, 229],
+  M: [254, 243, 199], T: [219, 234, 254], S: [224, 231, 255], R: [243, 244, 246], C: [209, 250, 229],
+  HN: [204, 251, 241], MAL: [255, 228, 230], AT: [254, 226, 226], FOR: [237, 233, 254],
 };
 
 const JOURS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
@@ -229,7 +230,7 @@ export default function Consolidation() {
           doc.setFillColor(...POSTE_FILL[poste]);
           doc.rect(x + 1, y + 1, colW - 2, rowH - 2, 'F');
           doc.setTextColor(30, 30, 30);
-          doc.setFontSize(9);
+          doc.setFontSize(poste.length > 1 ? 6.5 : 9);
           doc.setFont('helvetica', 'bold');
           doc.text(poste, x + colW / 2, y + 6.5, { align: 'center' });
         });
@@ -244,10 +245,10 @@ export default function Consolidation() {
       });
 
       y += 5;
-      doc.setFontSize(7);
+      doc.setFontSize(6.5);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(100, 100, 100);
-      doc.text('M = Matin   |   T = Tranche   |   S = Soir   |   R = Repos   |   C = Congé', margin, y);
+      doc.text('M=Matin  T=Tranche  S=Soir  R=Repos  C=Congé  HN=Horaire Normal  MAL=Maladie  AT=Accident Travail  FOR=Formation', margin, y);
       doc.setTextColor(180, 180, 180);
       doc.text(`Imprimé le ${new Date().toLocaleDateString('fr-FR')}`, pageW - margin, y, { align: 'right' });
     }
@@ -264,14 +265,15 @@ export default function Consolidation() {
       const headers = [
         'Collaborateur', 'Prénom',
         ...jours.map((j, i) => `${JOURS[i]} ${formatDisplay(j)}`),
-        'Travail', 'Repos/Congé',
+        'Travail', 'Repos/Congé', 'Absences',
       ];
 
       const rows = rayon.collaborateurs.map(c => {
         const postes = jours.map(j => rayon.grille[c.id]?.[formatDate(j)] ?? 'R');
-        const travail = postes.filter(p => ['M', 'T', 'S'].includes(p)).length;
+        const travail = postes.filter(p => ['M', 'T', 'S', 'HN'].includes(p)).length;
         const repos = postes.filter(p => ['R', 'C'].includes(p)).length;
-        return [c.nom, c.prenom, ...postes, travail, repos];
+        const absences = postes.filter(p => ['MAL', 'AT', 'FOR'].includes(p)).length;
+        return [c.nom, c.prenom, ...postes, travail, repos, absences];
       });
 
       const wsData = [
@@ -280,7 +282,7 @@ export default function Consolidation() {
       ];
 
       const ws = XLSX.utils.aoa_to_sheet(wsData);
-      ws['!cols'] = [{ wch: 18 }, { wch: 14 }, ...jours.map(() => ({ wch: 10 })), { wch: 10 }, { wch: 12 }];
+      ws['!cols'] = [{ wch: 18 }, { wch: 14 }, ...jours.map(() => ({ wch: 10 })), { wch: 10 }, { wch: 12 }, { wch: 10 }];
       XLSX.utils.book_append_sheet(wb, ws, rayon.nom.substring(0, 31));
     }
 
@@ -290,7 +292,6 @@ export default function Consolidation() {
   const activeData = rayonsData.find(r => r.id === activeRayon);
   const semaineLabel = `S${numSemaine} — ${formatDisplay(semaine)} au ${formatDisplay(addDays(semaine, 6))}`;
 
-  // Grouper par département
   const grouped: Record<string, RayonData[]> = {};
   for (const r of rayonsData) {
     if (!grouped[r.depNom]) grouped[r.depNom] = [];
@@ -363,7 +364,6 @@ export default function Consolidation() {
         </div>
       ) : (
         <>
-          {/* Onglets groupés par département */}
           <div className="space-y-3">
             {Object.entries(grouped).map(([depNom, depRayons]) => (
               <div key={depNom}>
@@ -391,7 +391,6 @@ export default function Consolidation() {
             ))}
           </div>
 
-          {/* Grille du rayon actif */}
           {activeData && (
             <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
@@ -432,7 +431,7 @@ export default function Consolidation() {
                     <tbody className="divide-y divide-gray-50">
                       {activeData.collaborateurs.map(c => {
                         const postes = jours.map(j => activeData.grille[c.id]?.[formatDate(j)] ?? 'R');
-                        const travail = postes.filter(p => ['M', 'T', 'S'].includes(p)).length;
+                        const travail = postes.filter(p => ['M', 'T', 'S', 'HN'].includes(p)).length;
                         return (
                           <tr key={c.id} className="hover:bg-gray-50">
                             <td className="px-4 py-2">
@@ -443,7 +442,9 @@ export default function Consolidation() {
                               const poste: Poste = activeData.grille[c.id]?.[formatDate(j)] ?? 'R';
                               return (
                                 <td key={i} className="px-1 py-2 text-center">
-                                  <span className={`inline-flex items-center justify-center w-10 h-8 rounded-lg border font-bold text-xs ${POSTE_STYLE[poste]}`}>
+                                  <span className={`inline-flex items-center justify-center w-10 h-8 rounded-lg border font-bold ${
+                                    poste.length > 1 ? 'text-[9px]' : 'text-xs'
+                                  } ${POSTE_STYLE[poste]}`}>
                                     {poste}
                                   </span>
                                 </td>
