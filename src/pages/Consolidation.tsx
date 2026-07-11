@@ -124,7 +124,8 @@ export default function Consolidation() {
     for (const rayon of rayons as any[]) {
       const { data: cols } = await supabase
         .from('collaborateurs').select('id, nom, prenom')
-        .eq('rayon_id', rayon.id).eq('actif', true).order('nom');
+        .eq('rayon_id', rayon.id).eq('actif', true)
+        .neq('fonction', 'chef_rayon').order('nom');
 
       const { data: plan } = await supabase
         .from('plannings').select('id')
