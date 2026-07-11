@@ -6,18 +6,23 @@ import { canAccessAdmin } from '../types';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 
-type Poste = 'M' | 'T' | 'S' | 'R' | 'C';
+type Poste = 'M' | 'T' | 'S' | 'R' | 'C' | 'HN' | 'MAL' | 'AT' | 'FOR';
 
 const POSTE_STYLE: Record<Poste, string> = {
-  M: 'bg-amber-100 text-amber-800',
-  T: 'bg-blue-100 text-blue-800',
-  S: 'bg-indigo-100 text-indigo-800',
-  R: 'bg-gray-100 text-gray-500',
-  C: 'bg-emerald-100 text-emerald-800',
+  M:   'bg-amber-100 text-amber-800',
+  T:   'bg-blue-100 text-blue-800',
+  S:   'bg-indigo-100 text-indigo-800',
+  R:   'bg-gray-100 text-gray-500',
+  C:   'bg-emerald-100 text-emerald-800',
+  HN:  'bg-teal-100 text-teal-800',
+  MAL: 'bg-rose-100 text-rose-800',
+  AT:  'bg-red-100 text-red-800',
+  FOR: 'bg-violet-100 text-violet-800',
 };
 
 const POSTE_LABEL: Record<Poste, string> = {
   M: 'Matin', T: 'Tranche', S: 'Soir', R: 'Repos', C: 'Congé',
+  HN: 'Horaire Normal', MAL: 'Maladie', AT: 'Accident Travail', FOR: 'Formation',
 };
 
 const JOURS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
@@ -76,6 +81,7 @@ interface MoisLigne {
   travail: number;
   repos: number;
   conge: number;
+  absences: number;
   total: number;
 }
 
@@ -134,11 +140,11 @@ export default function Rapports() {
         .from('plannings').select('id').eq('rayon_id', rayon.id).eq('semaine_debut', lundi).single();
       if (!plan) continue;
 
-      // Toutes les tranches de présence (M, T, S) — pas seulement Matin
+      // Toutes les tranches de présence (M, T, S, HN) — pas seulement Matin
       const { data: lignes } = await supabase
         .from('planning_lignes').select('collaborateur_id, poste')
         .eq('planning_id', plan.id).eq('jour', date)
-        .in('poste', ['M', 'T', 'S']);
+        .in('poste', ['M', 'T', 'S', 'HN']);
 
       if (!lignes?.length) continue;
 
@@ -148,8 +154,7 @@ export default function Rapports() {
           .from('collaborateurs').select('nom, prenom').eq('id', l.collaborateur_id).single();
         if (col) cols.push({ nom: col.nom, prenom: col.prenom, poste: l.poste as Poste });
       }
-      // Trier par tranche (M, T, S) puis par nom
-      const ordre: Record<Poste, number> = { M: 0, T: 1, S: 2, R: 3, C: 4 };
+      const ordre: Record<Poste, number> = { M: 0, T: 1, S: 2, HN: 3, R: 4, C: 5, MAL: 6, AT: 7, FOR: 8 };
       cols.sort((a, b) => ordre[a.poste] - ordre[b.poste] || a.nom.localeCompare(b.nom));
       if (cols.length) result.push({ rayonNom: rayon.nom, collaborateurs: cols });
     }
@@ -223,9 +228,10 @@ export default function Rapports() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result: MoisLigne[] = (cols as any[]).map(c => {
       const cLignes = (lignes ?? []).filter((l: { collaborateur_id: string }) => l.collaborateur_id === c.id);
-      const travail = cLignes.filter((l: { poste: string }) => ['M', 'T', 'S'].includes(l.poste)).length;
+      const travail = cLignes.filter((l: { poste: string }) => ['M', 'T', 'S', 'HN'].includes(l.poste)).length;
       const repos = cLignes.filter((l: { poste: string }) => l.poste === 'R').length;
       const conge = cLignes.filter((l: { poste: string }) => l.poste === 'C').length;
+      const absences = cLignes.filter((l: { poste: string }) => ['MAL', 'AT', 'FOR'].includes(l.poste)).length;
       return {
         nom: c.nom,
         prenom: c.prenom,
@@ -233,6 +239,7 @@ export default function Rapports() {
         travail,
         repos,
         conge,
+        absences,
         total: cLignes.length,
       };
     });
@@ -339,7 +346,7 @@ export default function Rapports() {
         doc.text(`${c.nom} ${c.prenom}`, margin + 2, y + 5.5);
         c.postes.forEach((p, i) => {
           const x = margin + nameColW + i * colW;
-          doc.setFontSize(8);
+          doc.setFontSize(p.length > 1 ? 6 : 8);
           doc.text(p, x + colW / 2, y + 5.5, { align: 'center' });
         });
         y += rowH;
@@ -355,18 +362,21 @@ export default function Rapports() {
   function exportMensuelExcel() {
     const [year, month] = mois.split('-').map(Number);
     const nomMois = new Date(year, month - 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
-    const headers = ['Nom', 'Prénom', 'Rayon', 'Jours Travaillés', 'Jours Repos', 'Jours Congé', 'Total Planifié'];
-    const rows = moisData.map(c => [c.nom, c.prenom, c.rayonNom, c.travail, c.repos, c.conge, c.total]);
+
+    const headers = ['Nom', 'Prénom', 'Rayon', 'Jours Travaillés', 'Jours Repos', 'Jours Congé', 'Jours Absence', 'Total Planifié'];
+    const rows = moisData.map(c => [c.nom, c.prenom, c.rayonNom, c.travail, c.repos, c.conge, c.absences, c.total]);
+
     const wsData = [
       [`RAPPORT MENSUEL — MARJANE TANGER — ${nomMois.toUpperCase()}`],
       [],
       headers,
       ...rows,
       [],
-      ['TOTAL', '', '', moisData.reduce((a, c) => a + c.travail, 0), moisData.reduce((a, c) => a + c.repos, 0), moisData.reduce((a, c) => a + c.conge, 0), ''],
+      ['TOTAL', '', '', moisData.reduce((a, c) => a + c.travail, 0), moisData.reduce((a, c) => a + c.repos, 0), moisData.reduce((a, c) => a + c.conge, 0), moisData.reduce((a, c) => a + c.absences, 0), ''],
     ];
+
     const ws = XLSX.utils.aoa_to_sheet(wsData);
-    ws['!cols'] = [{ wch: 18 }, { wch: 14 }, { wch: 20 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
+    ws['!cols'] = [{ wch: 18 }, { wch: 14 }, { wch: 20 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 13 }, { wch: 14 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Rapport Mensuel');
     XLSX.writeFile(wb, `rapport_mensuel_${mois}.xlsx`);
@@ -390,12 +400,12 @@ export default function Rapports() {
     doc.text(nomMois.charAt(0).toUpperCase() + nomMois.slice(1), margin, 17);
 
     let y = 28;
-    const colWidths = [45, 30, 22, 22, 22, 22];
-    const headers = ['Collaborateur', 'Rayon', 'Travail', 'Repos', 'Congé', 'Total'];
+    const colWidths = [40, 26, 20, 18, 18, 20, 20];
+    const headers = ['Collaborateur', 'Rayon', 'Travail', 'Repos', 'Congé', 'Absence', 'Total'];
     doc.setFillColor(240, 242, 255);
     doc.rect(margin, y, pageW - margin * 2, 8, 'F');
     doc.setTextColor(50, 50, 50);
-    doc.setFontSize(8);
+    doc.setFontSize(7.5);
     doc.setFont('helvetica', 'bold');
     let x = margin;
     headers.forEach((h, i) => {
@@ -410,10 +420,10 @@ export default function Rapports() {
       doc.setFillColor(...bg);
       doc.rect(margin, y, pageW - margin * 2, 7, 'F');
       doc.setTextColor(30, 30, 30);
-      doc.setFontSize(7.5);
+      doc.setFontSize(7);
       doc.setFont('helvetica', 'normal');
       x = margin;
-      const vals = [`${c.nom} ${c.prenom}`, c.rayonNom, `${c.travail}j`, `${c.repos}j`, `${c.conge}j`, `${c.total}j`];
+      const vals = [`${c.nom} ${c.prenom}`, c.rayonNom, `${c.travail}j`, `${c.repos}j`, `${c.conge}j`, `${c.absences}j`, `${c.total}j`];
       vals.forEach((v, i) => {
         doc.text(String(v), x + 2, y + 5);
         x += colWidths[i];
@@ -572,13 +582,15 @@ export default function Rapports() {
                         </thead>
                         <tbody className="divide-y divide-gray-50">
                           {rayon.collaborateurs.map((c, i) => {
-                            const travail = c.postes.filter(p => ['M', 'T', 'S'].includes(p)).length;
+                            const travail = c.postes.filter(p => ['M', 'T', 'S', 'HN'].includes(p)).length;
                             return (
                               <tr key={i} className="hover:bg-gray-50">
                                 <td className="px-4 py-2 font-medium">{c.nom} <span className="text-gray-400 font-normal">{c.prenom}</span></td>
                                 {c.postes.map((p, j) => (
                                   <td key={j} className="px-1 py-2 text-center">
-                                    <span className={`inline-flex items-center justify-center w-8 h-6 rounded text-xs font-bold ${POSTE_STYLE[p]}`}>{p}</span>
+                                    <span className={`inline-flex items-center justify-center w-8 h-6 rounded font-bold ${
+                                      p.length > 1 ? 'text-[8px]' : 'text-xs'
+                                    } ${POSTE_STYLE[p]}`}>{p}</span>
                                   </td>
                                 ))}
                                 <td className="px-2 py-2 text-center font-bold text-blue-600">{travail}j</td>
@@ -610,6 +622,7 @@ export default function Rapports() {
                         <th className="text-center px-3 py-3 font-medium text-gray-500 text-xs">Travail</th>
                         <th className="text-center px-3 py-3 font-medium text-gray-500 text-xs">Repos</th>
                         <th className="text-center px-3 py-3 font-medium text-gray-500 text-xs">Congé</th>
+                        <th className="text-center px-3 py-3 font-medium text-gray-500 text-xs">Absence</th>
                         <th className="text-center px-3 py-3 font-medium text-gray-500 text-xs">Total</th>
                       </tr>
                     </thead>
@@ -624,6 +637,7 @@ export default function Rapports() {
                           <td className="px-3 py-3 text-center font-bold text-blue-600">{c.travail}j</td>
                           <td className="px-3 py-3 text-center text-gray-400 text-xs">{c.repos}j</td>
                           <td className="px-3 py-3 text-center text-emerald-600 text-xs">{c.conge}j</td>
+                          <td className="px-3 py-3 text-center text-rose-500 text-xs">{c.absences}j</td>
                           <td className="px-3 py-3 text-center text-gray-500 text-xs">{c.total}j</td>
                         </tr>
                       ))}
@@ -634,6 +648,7 @@ export default function Rapports() {
                         <td className="px-3 py-3 text-center font-bold text-blue-600">{moisData.reduce((a: number, c: MoisLigne) => a + c.travail, 0)}j</td>
                         <td className="px-3 py-3 text-center text-gray-400 text-xs">{moisData.reduce((a: number, c: MoisLigne) => a + c.repos, 0)}j</td>
                         <td className="px-3 py-3 text-center text-emerald-600 text-xs">{moisData.reduce((a: number, c: MoisLigne) => a + c.conge, 0)}j</td>
+                        <td className="px-3 py-3 text-center text-rose-500 text-xs">{moisData.reduce((a: number, c: MoisLigne) => a + c.absences, 0)}j</td>
                         <td className="px-3 py-3 text-center text-gray-500 text-xs">{moisData.reduce((a: number, c: MoisLigne) => a + c.total, 0)}j</td>
                       </tr>
                     </tfoot>
