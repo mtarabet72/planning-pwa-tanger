@@ -179,7 +179,8 @@ export default function Rapports() {
         .from('plannings').select('id').eq('rayon_id', rayon.id).eq('semaine_debut', debut).single();
 
       const { data: cols } = await supabase
-        .from('collaborateurs').select('id, nom, prenom').eq('rayon_id', rayon.id).eq('actif', true).order('nom');
+        .from('collaborateurs').select('id, nom, prenom').eq('rayon_id', rayon.id).eq('actif', true)
+        .neq('fonction', 'chef_rayon').order('nom');
 
       if (!cols?.length) continue;
 
@@ -208,7 +209,7 @@ export default function Rapports() {
     const { debut, fin } = getMonth(new Date(year, month - 1, 1));
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let colQuery: any = supabase.from('collaborateurs').select('id, nom, prenom, rayon_id, rayons(nom)').eq('actif', true).order('nom');
+    let colQuery: any = supabase.from('collaborateurs').select('id, nom, prenom, rayon_id, rayons(nom)').eq('actif', true).neq('fonction', 'chef_rayon').order('nom');
     if (profile?.role === 'chef_rayon' && profile.rayon_id) {
       colQuery = colQuery.eq('rayon_id', profile.rayon_id);
     } else if (isChefDep && profile?.departement_id) {
