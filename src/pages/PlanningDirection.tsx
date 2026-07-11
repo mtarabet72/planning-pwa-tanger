@@ -29,6 +29,19 @@ const POSTE_LABEL: Record<Poste, string> = {
   HN: 'Horaire Normal', MAL: 'Maladie', AT: 'Accident Travail', FOR: 'Formation',
 };
 
+// Horaires fixes affichés dans la vue "Jour" (façon planning de permanence)
+const CRENEAUX: { poste: 'M' | 'T' | 'S'; label: string; horaire: string }[] = [
+  { poste: 'M', label: 'Matin', horaire: '07:00 – 14:30' },
+  { poste: 'T', label: 'Tranche', horaire: '14:30 – 22:00' },
+  { poste: 'S', label: 'Soir', horaire: '15:30 – 23:00' },
+];
+const CRENEAU_DOT: Record<'M' | 'T' | 'S', string> = {
+  M: 'bg-amber-500', T: 'bg-blue-500', S: 'bg-indigo-900',
+};
+const CRENEAU_BORDER: Record<'M' | 'T' | 'S', string> = {
+  M: 'border-l-amber-500', T: 'border-l-blue-500', S: 'border-l-indigo-900',
+};
+
 const POSTE_FILL: Record<Poste, [number, number, number]> = {
   M: [254, 243, 199], T: [219, 234, 254], S: [224, 231, 255], R: [243, 244, 246], C: [209, 250, 229],
   HN: [204, 251, 241], MAL: [255, 228, 230], AT: [254, 226, 226], FOR: [237, 233, 254],
@@ -107,6 +120,9 @@ export default function PlanningDirection() {
   const [showAddMembre, setShowAddMembre] = useState(false);
   const [allCollabs, setAllCollabs] = useState<Collaborateur[]>([]);
   const [searchMembre, setSearchMembre] = useState('');
+  const [permVue, setPermVue] = useState<'jour' | 'grille'>('jour');
+  const [slotPicker, setSlotPicker] = useState<{ dateStr: string; poste: 'M' | 'T' | 'S' } | null>(null);
+  const [searchSlot, setSearchSlot] = useState('');
 
   // --- DIRECTION STATE ---
   const [dirCollabs, setDirCollabs] = useState<Collaborateur[]>([]);
@@ -202,6 +218,35 @@ export default function PlanningDirection() {
       const next = idx === -1 ? POSTES_CYCLE[0] : POSTES_CYCLE[(idx + 1) % POSTES_CYCLE.length];
       return { ...prev, [colId]: { ...prev[colId], [jour]: next } };
     });
+    setPermSaved(false);
+  }
+
+  // Qui est assigné à un créneau (Matin/Tranche/Soir) un jour donné
+  function getAssigne(dateStr: string, poste: 'M' | 'T' | 'S'): Collaborateur | undefined {
+    return permMembres.find(m => permGrille[m.id]?.[dateStr] === poste);
+  }
+
+  // Assigne un membre à un créneau pour un jour (libère automatiquement l'ancien titulaire)
+  function assignSlot(dateStr: string, poste: 'M' | 'T' | 'S', collaborateurId: string) {
+    setPermGrille(prev => {
+      const next: Grille = { ...prev };
+      for (const m of permMembres) {
+        if (next[m.id]?.[dateStr] === poste && m.id !== collaborateurId) {
+          next[m.id] = { ...next[m.id], [dateStr]: 'R' };
+        }
+      }
+      next[collaborateurId] = { ...next[collaborateurId], [dateStr]: poste };
+      return next;
+    });
+    setPermSaved(false);
+    setSlotPicker(null);
+    setSearchSlot('');
+  }
+
+  function clearSlot(dateStr: string, poste: 'M' | 'T' | 'S') {
+    const current = getAssigne(dateStr, poste);
+    if (!current) return;
+    setPermGrille(prev => ({ ...prev, [current.id]: { ...prev[current.id], [dateStr]: 'R' } }));
     setPermSaved(false);
   }
 
@@ -449,6 +494,22 @@ export default function PlanningDirection() {
 
         {activeTab === 'permanence' && (
           <div className="flex gap-2 flex-wrap">
+            {permMembres.length > 0 && (
+              <div className="flex gap-1 bg-white border border-gray-200 rounded-xl p-1">
+                <button
+                  onClick={() => setPermVue('jour')}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${permVue === 'jour' ? 'bg-amber-500 text-white' : 'text-gray-500 hover:bg-gray-100'}`}
+                >
+                  Vue Jour
+                </button>
+                <button
+                  onClick={() => setPermVue('grille')}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${permVue === 'grille' ? 'bg-amber-500 text-white' : 'text-gray-500 hover:bg-gray-100'}`}
+                >
+                  Vue Grille
+                </button>
+              </div>
+            )}
             <button
               onClick={() => { setShowAddMembre(true); loadAllCollabs(); }}
               className="flex items-center gap-2 bg-amber-500 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-amber-600 transition"
@@ -517,6 +578,72 @@ export default function PlanningDirection() {
             <Shield className="w-8 h-8 mx-auto mb-3 opacity-30" />
             Aucun membre désigné pour la permanence cette semaine.
             <p className="text-xs mt-2">Appuie sur "Ajouter membre" pour désigner les responsables de garde.</p>
+          </div>
+        ) : permVue === 'jour' ? (
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+            <div className="bg-slate-900 text-white px-5 py-3 flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-sm">Planning de Permanence</div>
+                <div className="text-slate-300 text-xs">Semaine {numSemaine} — du {formatDisplayLong(semaine)} au {formatDisplayLong(addDays(semaine, 6))}</div>
+              </div>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {jours.map((j, i) => {
+                const dateStr = formatDate(j);
+                const isToday = formatDate(new Date()) === dateStr;
+                return (
+                  <div key={i} className={`flex flex-col sm:flex-row sm:items-center gap-3 px-5 py-3 ${isToday ? 'bg-amber-50/60' : ''}`}>
+                    <div className="w-20 shrink-0 flex sm:block items-center gap-2">
+                      <div className="text-lg font-bold text-gray-800 leading-none">{j.getDate()}</div>
+                      <div className={`text-[11px] font-medium tracking-wide ${isToday ? 'text-amber-600' : 'text-gray-400'}`}>
+                        {JOURS[i].toUpperCase()}{isToday ? ' · AUJ.' : ''}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 flex-1">
+                      {CRENEAUX.map(cr => {
+                        const assigne = getAssigne(dateStr, cr.poste);
+                        return (
+                          <button
+                            key={cr.poste}
+                            onClick={() => setSlotPicker({ dateStr, poste: cr.poste })}
+                            className={`text-left border border-gray-100 border-l-4 ${CRENEAU_BORDER[cr.poste]} rounded-xl px-3 py-2 hover:bg-gray-50 transition group relative`}
+                          >
+                            <div className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">
+                              <span className={`w-1.5 h-1.5 rounded-full ${CRENEAU_DOT[cr.poste]}`} />
+                              {cr.label}
+                            </div>
+                            {assigne ? (
+                              <>
+                                <div className="text-sm font-semibold text-gray-800 truncate">{assigne.nom} {assigne.prenom}</div>
+                                <div className="text-[11px] text-gray-400">{cr.horaire}</div>
+                              </>
+                            ) : (
+                              <div className="text-sm text-gray-300 italic">Non assigné</div>
+                            )}
+                            {assigne && (
+                              <span
+                                onClick={e => { e.stopPropagation(); clearSlot(dateStr, cr.poste); }}
+                                className="absolute top-1.5 right-1.5 p-1 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition"
+                              >
+                                <X className="w-3 h-3" />
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex flex-wrap items-center gap-4 px-5 py-3 bg-gray-50 border-t border-gray-100 text-[11px] text-gray-500">
+              {CRENEAUX.map(cr => (
+                <span key={cr.poste} className="flex items-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-full ${CRENEAU_DOT[cr.poste]}`} /> {cr.label}
+                </span>
+              ))}
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gray-300" /> Non assigné</span>
+            </div>
           </div>
         ) : (
           <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
@@ -677,6 +804,62 @@ export default function PlanningDirection() {
                     <Plus className="w-4 h-4 text-amber-500" />
                   </button>
                 ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal assignation créneau (vue Jour) */}
+      {slotPicker && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4" onClick={() => { setSlotPicker(null); setSearchSlot(''); }}>
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-6 border-b border-gray-100">
+              <div>
+                <h3 className="font-semibold text-lg">
+                  {CRENEAUX.find(c => c.poste === slotPicker.poste)?.label} — {CRENEAUX.find(c => c.poste === slotPicker.poste)?.horaire}
+                </h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {new Date(slotPicker.dateStr + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: 'long' })}
+                </p>
+              </div>
+              <button onClick={() => { setSlotPicker(null); setSearchSlot(''); }} className="p-2 hover:bg-gray-100 rounded-xl">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4">
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Rechercher un membre de la permanence..."
+                  value={searchSlot}
+                  onChange={e => setSearchSlot(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-1">
+              {permMembres
+                .filter(c => c.nom.toLowerCase().includes(searchSlot.toLowerCase()) || c.prenom.toLowerCase().includes(searchSlot.toLowerCase()))
+                .map(c => {
+                  const dejaAssigne = permGrille[c.id]?.[slotPicker.dateStr] === slotPicker.poste;
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => assignSlot(slotPicker.dateStr, slotPicker.poste, c.id)}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition text-left ${dejaAssigne ? 'bg-amber-50' : 'hover:bg-gray-50'}`}
+                    >
+                      <div>
+                        <div className="font-medium text-sm">{c.nom} {c.prenom}</div>
+                        <div className="text-xs text-gray-400">{c.rayonNom}</div>
+                      </div>
+                      {dejaAssigne && <span className="text-xs font-medium text-amber-600">Assigné ✓</span>}
+                    </button>
+                  );
+                })}
+              {permMembres.length === 0 && (
+                <p className="text-center text-sm text-gray-400 py-8">Aucun membre. Ajoute d'abord des membres à la permanence.</p>
               )}
             </div>
           </div>
