@@ -35,10 +35,12 @@ function StatCard({ label, value, sub, color, icon: Icon }: {
 
 const POSTE_LABEL: Record<string, string> = {
   M: 'Matin', T: 'Tranche', S: 'Soir', R: 'Repos', C: 'Congé',
+  HN: 'Horaire Normal', MAL: 'Maladie', AT: 'Accident Travail', FOR: 'Formation',
 };
 
 const POSTE_COLOR: Record<string, string> = {
   M: 'bg-amber-400', T: 'bg-blue-400', S: 'bg-indigo-400', R: 'bg-gray-300', C: 'bg-emerald-400',
+  HN: 'bg-teal-400', MAL: 'bg-rose-400', AT: 'bg-red-400', FOR: 'bg-violet-400',
 };
 
 function getLundi(date: Date): string {
@@ -117,7 +119,7 @@ export default function Dashboard() {
       .select('poste, plannings!inner(semaine_debut)')
       .eq('plannings.semaine_debut', semaineCourante);
 
-    const repartition: Record<string, number> = { M: 0, T: 0, S: 0, R: 0, C: 0 };
+    const repartition: Record<string, number> = { M: 0, T: 0, S: 0, R: 0, C: 0, HN: 0, MAL: 0, AT: 0, FOR: 0 };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const l of (lignesRaw ?? []) as any[]) {
       if (repartition[l.poste] !== undefined) repartition[l.poste]++;
@@ -145,6 +147,8 @@ export default function Dashboard() {
   if (!stats) return null;
 
   const totalPostes = Object.values(stats.repartitionPostes).reduce((a, b) => a + b, 0);
+  // N'affiche que les postes utilisés cette semaine, pour ne pas surcharger le graphique
+  const postesAffiches = Object.entries(stats.repartitionPostes).filter(([, nb]) => nb > 0);
 
   return (
     <div className="space-y-6">
@@ -169,7 +173,7 @@ export default function Dashboard() {
             <p className="text-sm text-gray-400 text-center py-8">Aucun planning cette semaine.</p>
           ) : (
             <div className="space-y-3">
-              {Object.entries(stats.repartitionPostes).map(([poste, nb]) => {
+              {postesAffiches.map(([poste, nb]) => {
                 const pct = totalPostes > 0 ? Math.round((nb / totalPostes) * 100) : 0;
                 return (
                   <div key={poste}>
