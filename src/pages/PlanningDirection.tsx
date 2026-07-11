@@ -471,6 +471,122 @@ export default function PlanningDirection() {
     doc.save(`${isPerm ? 'permanence' : 'direction'}_S${numSemaine}.pdf`);
   }
 
+  // PDF "Planning de Permanence" — même design que le modèle mensuel de référence, en version hebdomadaire
+  const SLOT_COLOR: Record<'M' | 'T' | 'S', [number, number, number]> = {
+    M: [217, 119, 6], T: [37, 99, 235], S: [30, 27, 75],
+  };
+
+  function exportPermanencePDF() {
+    if (!permMembres.length) return;
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageW = 210, margin = 12;
+    const contentW = pageW - margin * 2;
+
+    // ---- En-tête ----
+    const headerH = 26;
+    doc.setFillColor(23, 42, 77);
+    doc.rect(0, 0, pageW, headerH, 'F');
+
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(margin, 6, 14, 14, 3, 3, 'F');
+    doc.setTextColor(23, 42, 77); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text('m', margin + 7, 15.5, { align: 'center' });
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
+    doc.text('Hypermarché Marjane Tanger Medina', margin + 19, 12);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    doc.text('Planning de Permanence', margin + 19, 18);
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+    doc.text(`Semaine ${numSemaine}`, pageW - margin, 11, { align: 'right' });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(210, 220, 235);
+    doc.text(`du ${formatDisplayLong(semaine)} au ${formatDisplayLong(addDays(semaine, 6))}`, pageW - margin, 17, { align: 'right' });
+    const now = new Date();
+    const genDate = now.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+    const genTime = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    doc.text(`Généré le ${genDate} à ${genTime}`, pageW - margin, 21.5, { align: 'right' });
+
+    // ---- Tableau ----
+    const jourColW = 26;
+    const slotColW = (contentW - jourColW) / 3;
+    const headerRowH = 9;
+    let y = headerH + 6;
+    const tableTop = y;
+
+    doc.setFillColor(243, 244, 246);
+    doc.rect(margin, y, contentW, headerRowH, 'F');
+    doc.setTextColor(110, 110, 110); doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5);
+    doc.text('JOUR', margin + 3, y + 6);
+    CRENEAU_ORDRE.forEach((poste, i) => {
+      const x = margin + jourColW + i * slotColW;
+      doc.setFillColor(...SLOT_COLOR[poste]);
+      doc.circle(x + 4, y + 4.3, 1.3, 'F');
+      doc.setTextColor(90, 90, 90);
+      doc.text(CRENEAU_LABEL[poste].toUpperCase(), x + 8, y + 6);
+    });
+    y += headerRowH;
+
+    const rowH = 22;
+    const todayStr = formatDate(new Date());
+    jours.forEach((j, di) => {
+      const dateStr = formatDate(j);
+      const isToday = dateStr === todayStr;
+      const bg: [number, number, number] = isToday ? [255, 247, 230] : (di % 2 === 0 ? [255, 255, 255] : [250, 250, 251]);
+      doc.setFillColor(...bg); doc.rect(margin, y, contentW, rowH, 'F');
+
+      doc.setTextColor(30, 30, 30); doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+      doc.text(String(j.getDate()), margin + 3, y + 10);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5);
+      doc.setTextColor(...(isToday ? [217, 119, 6] as [number, number, number] : [150, 150, 150] as [number, number, number]));
+      doc.text(JOURS[di].toUpperCase() + (isToday ? ' · AUJ.' : ''), margin + 3, y + 15);
+
+      CRENEAU_ORDRE.forEach((poste, i) => {
+        const x = margin + jourColW + i * slotColW;
+        doc.setFillColor(...SLOT_COLOR[poste]);
+        doc.rect(x + 1, y + 2.5, 1, rowH - 5, 'F');
+
+        const assigne = permMembres.find(m => permGrille[m.id]?.[dateStr] === poste);
+        if (assigne) {
+          doc.setTextColor(30, 30, 30); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
+          doc.text(`${assigne.nom} ${assigne.prenom}`, x + 4.5, y + 9, { maxWidth: slotColW - 7 });
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(140, 140, 140);
+          doc.text(`${horaires[poste].debut} – ${horaires[poste].fin}`, x + 4.5, y + 15.5);
+        } else {
+          doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(195, 195, 195);
+          doc.text('Non assigné', x + 4.5, y + 10);
+        }
+      });
+      y += rowH;
+    });
+
+    doc.setDrawColor(228, 228, 228);
+    doc.rect(margin, tableTop, contentW, y - tableTop);
+    doc.line(margin + jourColW, tableTop, margin + jourColW, y);
+    CRENEAU_ORDRE.forEach((_, i) => {
+      if (i === 0) return;
+      const x = margin + jourColW + i * slotColW;
+      doc.line(x, tableTop, x, y);
+    });
+
+    // ---- Légende ----
+    y += 7;
+    doc.setFontSize(7.5); doc.setFont('helvetica', 'normal');
+    let lx = margin;
+    CRENEAU_ORDRE.forEach(poste => {
+      doc.setFillColor(...SLOT_COLOR[poste]);
+      doc.circle(lx + 1.2, y - 1, 1.2, 'F');
+      doc.setTextColor(100, 100, 100);
+      doc.text(`${CRENEAU_LABEL[poste]} (${horaires[poste].debut}–${horaires[poste].fin})`, lx + 4, y);
+      lx += 55;
+    });
+    doc.setFillColor(205, 205, 205);
+    doc.circle(lx + 1.2, y - 1, 1.2, 'F');
+    doc.text('Non assigné', lx + 4, y);
+
+    doc.save(`permanence_S${numSemaine}.pdf`);
+  }
+
   function exportExcel(kind: TabType) {
     const isPerm = kind === 'permanence';
     const collabs = isPerm ? permMembres : dirCollabs;
@@ -564,7 +680,7 @@ export default function PlanningDirection() {
                   {permSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                   {permSaved ? 'Sauvegardé ✓' : 'Sauvegarder'}
                 </button>
-                <button onClick={() => exportPDF('permanence')} className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-emerald-700 transition">
+                <button onClick={exportPermanencePDF} className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-emerald-700 transition">
                   <Printer className="w-4 h-4" /> PDF
                 </button>
                 <button onClick={() => exportExcel('permanence')} className="flex items-center gap-2 bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-green-700 transition">
