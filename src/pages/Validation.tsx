@@ -138,10 +138,10 @@ export default function Validation() {
       .eq('semaine_debut', debut)
       .order('statut');
 
-    if (isChefRayon && profile?.rayon_id) {
-      query = query.eq('rayon_id', profile.rayon_id);
-    } else if (isChefDep && profile?.departement_id) {
-      const { data: rays } = await supabase.from('rayons').select('id').eq('departement_id', profile.departement_id);
+    if (isChefRayon && profile!.rayon_ids.length > 0) {
+      query = query.in('rayon_id', profile!.rayon_ids);
+    } else if (isChefDep && (profile?.departement_ids?.length ?? 0) > 0) {
+      const { data: rays } = await supabase.from('rayons').select('id').in('departement_id', profile!.departement_ids);
       query = query.in('rayon_id', (rays ?? []).map((r: { id: string }) => r.id));
     }
 
@@ -207,8 +207,8 @@ export default function Validation() {
       .eq('semaine_debut', debut)
       .order('statut');
 
-    if (isChefDep && profile?.departement_id) {
-      query = query.eq('departement_id', profile.departement_id);
+    if (isChefDep && (profile?.departement_ids?.length ?? 0) > 0) {
+      query = query.in('departement_id', profile.departement_ids);
     }
 
     const { data } = await query;
