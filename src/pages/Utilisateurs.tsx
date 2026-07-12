@@ -10,10 +10,8 @@ interface Utilisateur {
   prenom: string;
   role: Role;
   actif: boolean;
-  departement_id: string | null;
-  rayon_id: string | null;
-  departements?: { nom: string };
-  rayons?: { nom: string };
+  departement_ids: string[];
+  rayon_ids: string[];
 }
 
 interface FormData {
@@ -22,8 +20,8 @@ interface FormData {
   nom: string;
   prenom: string;
   role: Role;
-  departement_id: string;
-  rayon_id: string;
+  departement_ids: string[];
+  rayon_ids: string[];
 }
 
 const EMPTY_FORM: FormData = {
@@ -32,8 +30,8 @@ const EMPTY_FORM: FormData = {
   nom: '',
   prenom: '',
   role: 'chef_rayon',
-  departement_id: '',
-  rayon_id: '',
+  departement_ids: [],
+  rayon_ids: [],
 };
 
 const ROLE_COLORS: Record<Role, string> = {
@@ -46,7 +44,6 @@ export default function Utilisateurs() {
   const [utilisateurs, setUtilisateurs] = useState<Utilisateur[]>([]);
   const [departements, setDepartements] = useState<Departement[]>([]);
   const [rayons, setRayons] = useState<Rayon[]>([]);
-  const [rayonsFiltres, setRayonsFiltres] = useState<Rayon[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -61,30 +58,59 @@ export default function Utilisateurs() {
   async function loadAll() {
     setLoading(true);
     const [{ data: users }, { data: deps }, { data: rays }] = await Promise.all([
-      supabase.from('profiles').select('*, departements(nom), rayons(nom)').order('nom'),
+      supabase.from('profiles').select('*').order('nom'),
       supabase.from('departements').select('*').order('nom'),
       supabase.from('rayons').select('*').order('nom'),
     ]);
-    setUtilisateurs((users as Utilisateur[]) ?? []);
+    setUtilisateurs(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ((users ?? []) as any[]).map(u => ({
+        ...u,
+        departement_ids: u.departement_ids ?? [],
+        rayon_ids: u.rayon_ids ?? [],
+      })) as Utilisateur[]
+    );
     setDepartements((deps as Departement[]) ?? []);
     setRayons((rays as Rayon[]) ?? []);
     setLoading(false);
   }
 
-  function handleRoleChange(role: Role) {
-    setForm(f => ({ ...f, role, departement_id: '', rayon_id: '' }));
-    setRayonsFiltres([]);
+  function depNom(id: string): string {
+    return departements.find(d => d.id === id)?.nom ?? '—';
+  }
+  function rayonNom(id: string): string {
+    return rayons.find(r => r.id === id)?.nom ?? '—';
   }
 
-  function handleDepChange(depId: string) {
-    setForm(f => ({ ...f, departement_id: depId, rayon_id: '' }));
-    setRayonsFiltres(rayons.filter(r => r.departement_id === depId));
+  function handleRoleChange(role: Role) {
+    setForm(f => ({ ...f, role, departement_ids: [], rayon_ids: [] }));
+  }
+
+  function toggleDepartement(depId: string) {
+    setForm(f => {
+      const already = f.departement_ids.includes(depId);
+      const departement_ids = already ? f.departement_ids.filter(id => id !== depId) : [...f.departement_ids, depId];
+      // Un rayon dont le département n'est plus sélectionné n'a plus de sens pour un chef de rayon
+      const rayon_ids = f.rayon_ids.filter(rid => {
+        const r = rayons.find(x => x.id === rid);
+        return r ? departement_ids.includes(r.departement_id) : false;
+      });
+      return { ...f, departement_ids, rayon_ids };
+    });
+  }
+
+  function toggleRayon(rayonId: string) {
+    setForm(f => ({
+      ...f,
+      rayon_ids: f.rayon_ids.includes(rayonId)
+        ? f.rayon_ids.filter(id => id !== rayonId)
+        : [...f.rayon_ids, rayonId],
+    }));
   }
 
   function openAdd() {
     setForm(EMPTY_FORM);
     setEditId(null);
-    setRayonsFiltres([]);
     setError(null);
     setShowForm(true);
   }
@@ -96,10 +122,9 @@ export default function Utilisateurs() {
       nom: u.nom,
       prenom: u.prenom,
       role: u.role,
-      departement_id: u.departement_id ?? '',
-      rayon_id: u.rayon_id ?? '',
+      departement_ids: u.departement_ids,
+      rayon_ids: u.rayon_ids,
     });
-    setRayonsFiltres(rayons.filter(r => r.departement_id === (u.departement_id ?? '')));
     setEditId(u.id);
     setError(null);
     setShowForm(true);
@@ -112,6 +137,14 @@ export default function Utilisateurs() {
       setError('Email et mot de passe obligatoires pour un nouveau compte.');
       return;
     }
+    if (form.role === 'chef_departement' && form.departement_ids.length === 0) {
+      setError('Sélectionnez au moins un département.');
+      return;
+    }
+    if (form.role === 'chef_rayon' && form.rayon_ids.length === 0) {
+      setError('Sélectionnez au moins un rayon.');
+      return;
+    }
     setSaving(true);
 
     if (editId) {
@@ -120,8 +153,8 @@ export default function Utilisateurs() {
         nom: form.nom.trim().toUpperCase(),
         prenom: form.prenom.trim(),
         role: form.role,
-        departement_id: form.departement_id || null,
-        rayon_id: form.rayon_id || null,
+        departement_ids: form.departement_ids,
+        rayon_ids: form.rayon_ids,
       }).eq('id', editId);
       if (err) { setError(err.message); setSaving(false); return; }
     } else {
@@ -141,8 +174,8 @@ export default function Utilisateurs() {
             nom: form.nom.trim().toUpperCase(),
             prenom: form.prenom.trim(),
             role: form.role,
-            departement_id: form.departement_id || null,
-            rayon_id: form.rayon_id || null,
+            departement_ids: form.departement_ids,
+            rayon_ids: form.rayon_ids,
           }),
         }
       );
@@ -205,16 +238,16 @@ export default function Utilisateurs() {
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ROLE_COLORS[u.role]}`}>
                     {ROLE_LABELS[u.role]}
                   </span>
-                  {u.departements?.nom && (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
-                      {u.departements.nom}
+                  {u.departement_ids.map(id => (
+                    <span key={id} className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                      {depNom(id)}
                     </span>
-                  )}
-                  {u.rayons?.nom && (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
-                      {u.rayons.nom}
+                  ))}
+                  {u.rayon_ids.map(id => (
+                    <span key={id} className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                      {rayonNom(id)}
                     </span>
-                  )}
+                  ))}
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -307,29 +340,50 @@ export default function Utilisateurs() {
               </div>
               {needsDep && (
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Département *</label>
-                  <select
-                    value={form.departement_id}
-                    onChange={e => handleDepChange(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">— Sélectionner —</option>
-                    {departements.map(d => <option key={d.id} value={d.id}>{d.nom}</option>)}
-                  </select>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    {form.role === 'chef_departement' ? 'Départements *' : 'Départements (pour filtrer les rayons)'}
+                  </label>
+                  <p className="text-[11px] text-gray-400 mb-2">
+                    Sélectionnez plusieurs départements si cette personne en gère plus d'un.
+                  </p>
+                  <div className="border border-gray-200 rounded-xl max-h-40 overflow-y-auto divide-y divide-gray-50">
+                    {departements.map(d => (
+                      <label key={d.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50">
+                        <input
+                          type="checkbox"
+                          checked={form.departement_ids.includes(d.id)}
+                          onChange={() => toggleDepartement(d.id)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        {d.nom}
+                      </label>
+                    ))}
+                  </div>
                 </div>
               )}
               {needsRayon && (
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Rayon *</label>
-                  <select
-                    value={form.rayon_id}
-                    onChange={e => setForm(f => ({ ...f, rayon_id: e.target.value }))}
-                    disabled={!form.departement_id}
-                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-                  >
-                    <option value="">— Sélectionner —</option>
-                    {rayonsFiltres.map(r => <option key={r.id} value={r.id}>{r.nom}</option>)}
-                  </select>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Rayons *</label>
+                  <p className="text-[11px] text-gray-400 mb-2">
+                    Sélectionnez plusieurs rayons si cette personne en gère plus d'un.
+                  </p>
+                  {form.departement_ids.length === 0 ? (
+                    <p className="text-xs text-gray-400 italic">Choisissez d'abord un ou plusieurs départements.</p>
+                  ) : (
+                    <div className="border border-gray-200 rounded-xl max-h-48 overflow-y-auto divide-y divide-gray-50">
+                      {rayons.filter(r => form.departement_ids.includes(r.departement_id)).map(r => (
+                        <label key={r.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50">
+                          <input
+                            type="checkbox"
+                            checked={form.rayon_ids.includes(r.id)}
+                            onChange={() => toggleRayon(r.id)}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          {r.nom}
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
               {error && (
