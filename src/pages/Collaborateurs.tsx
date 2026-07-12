@@ -29,6 +29,8 @@ interface Collaborateur {
   actif: boolean;
   departement_id: string | null;
   rayon_id: string | null;
+  rayons_geres_ids: string[] | null;
+  departements_geres_ids: string[] | null;
   departements?: { nom: string };
   rayons?: { nom: string };
 }
@@ -41,6 +43,8 @@ interface FormData {
   fonction: Fonction;
   departement_id: string;
   rayon_id: string;
+  rayons_geres_ids: string[];
+  departements_geres_ids: string[];
   actif: boolean;
 }
 
@@ -52,6 +56,8 @@ const EMPTY_FORM: FormData = {
   fonction: 'employe',
   departement_id: '',
   rayon_id: '',
+  rayons_geres_ids: [],
+  departements_geres_ids: [],
   actif: true,
 };
 
@@ -81,7 +87,14 @@ export default function Collaborateurs() {
       supabase.from('departements').select('*').order('nom'),
       supabase.from('rayons').select('*').order('nom'),
     ]);
-    setCollaborateurs((cols as Collaborateur[]) ?? []);
+    setCollaborateurs(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (((cols ?? []) as any[]).map(c => ({
+        ...c,
+        rayons_geres_ids: c.rayons_geres_ids ?? [],
+        departements_geres_ids: c.departements_geres_ids ?? [],
+      })) as Collaborateur[])
+    );
     setDepartements((deps as Departement[]) ?? []);
     setRayons((rays as Rayon[]) ?? []);
     setLoading(false);
@@ -90,6 +103,24 @@ export default function Collaborateurs() {
   function handleDepChange(depId: string) {
     setForm(f => ({ ...f, departement_id: depId, rayon_id: '' }));
     setRayonsFiltres(rayons.filter(r => r.departement_id === depId));
+  }
+
+  function toggleRayonGere(rayonId: string) {
+    setForm(f => ({
+      ...f,
+      rayons_geres_ids: f.rayons_geres_ids.includes(rayonId)
+        ? f.rayons_geres_ids.filter(id => id !== rayonId)
+        : [...f.rayons_geres_ids, rayonId],
+    }));
+  }
+
+  function toggleDepartementGere(depId: string) {
+    setForm(f => ({
+      ...f,
+      departements_geres_ids: f.departements_geres_ids.includes(depId)
+        ? f.departements_geres_ids.filter(id => id !== depId)
+        : [...f.departements_geres_ids, depId],
+    }));
   }
 
   function openAdd() {
@@ -108,6 +139,8 @@ export default function Collaborateurs() {
       fonction: c.fonction ?? 'employe',
       departement_id: c.departement_id ?? '',
       rayon_id: c.rayon_id ?? '',
+      rayons_geres_ids: c.rayons_geres_ids ?? [],
+      departements_geres_ids: c.departements_geres_ids ?? [],
       actif: c.actif,
     });
     setRayonsFiltres(rayons.filter(r => r.departement_id === (c.departement_id ?? '')));
@@ -126,6 +159,8 @@ export default function Collaborateurs() {
       fonction: form.fonction,
       departement_id: form.departement_id || null,
       rayon_id: form.rayon_id || null,
+      rayons_geres_ids: form.fonction === 'chef_rayon' ? form.rayons_geres_ids : [],
+      departements_geres_ids: form.fonction === 'chef_departement' ? form.departements_geres_ids : [],
       actif: form.actif,
     };
     if (editId) {
@@ -263,9 +298,27 @@ export default function Collaborateurs() {
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-600 hidden sm:table-cell">
                       {c.departements?.nom ?? '—'}
+                      {c.fonction === 'chef_departement' && (c.departements_geres_ids?.length ?? 0) > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {c.departements_geres_ids!.map(id => (
+                            <span key={id} className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700">
+                              {departements.find(d => d.id === id)?.nom ?? '—'}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-600 hidden sm:table-cell">
                       {c.rayons?.nom ?? '—'}
+                      {c.fonction === 'chef_rayon' && (c.rayons_geres_ids?.length ?? 0) > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {c.rayons_geres_ids!.map(id => (
+                            <span key={id} className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-700">
+                              {rayons.find(r => r.id === id)?.nom ?? '—'}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full font-medium ${
@@ -389,6 +442,48 @@ export default function Collaborateurs() {
                   {rayonsFiltres.map(r => <option key={r.id} value={r.id}>{r.nom}</option>)}
                 </select>
               </div>
+              {form.fonction === 'chef_rayon' && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Autres rayons gérés</label>
+                  <p className="text-[11px] text-gray-400 mb-2">
+                    Étiquette informative uniquement — n'affecte pas le planning. Le rayon principal ci-dessus reste celui utilisé pour la planification.
+                  </p>
+                  <div className="border border-gray-200 rounded-xl max-h-40 overflow-y-auto divide-y divide-gray-50">
+                    {rayons.filter(r => r.id !== form.rayon_id).map(r => (
+                      <label key={r.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50">
+                        <input
+                          type="checkbox"
+                          checked={form.rayons_geres_ids.includes(r.id)}
+                          onChange={() => toggleRayonGere(r.id)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        {r.nom}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {form.fonction === 'chef_departement' && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Autres départements gérés</label>
+                  <p className="text-[11px] text-gray-400 mb-2">
+                    Étiquette informative uniquement — n'affecte pas le planning. Le département principal ci-dessus reste celui utilisé pour la planification.
+                  </p>
+                  <div className="border border-gray-200 rounded-xl max-h-40 overflow-y-auto divide-y divide-gray-50">
+                    {departements.filter(d => d.id !== form.departement_id).map(d => (
+                      <label key={d.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50">
+                        <input
+                          type="checkbox"
+                          checked={form.departements_geres_ids.includes(d.id)}
+                          onChange={() => toggleDepartementGere(d.id)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        {d.nom}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setForm(f => ({ ...f, actif: !f.actif }))}
