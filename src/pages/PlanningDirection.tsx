@@ -956,7 +956,20 @@ export default function PlanningDirection() {
             </div>
             <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-1">
               {filteredCollabs.length === 0 ? (
-                <p className="text-center text-sm text-gray-400 py-8">Aucun résultat.</p>
+                <div className="py-4">
+                  <p className="text-center text-sm text-gray-400 mb-3">Aucun résultat.</p>
+                  <details className="text-xs text-gray-500 border-t border-gray-100 pt-3">
+                    <summary className="cursor-pointer text-amber-600 font-medium text-center">
+                      [DEBUG] Voir les {allCollabs.length} collaborateurs actifs chargés
+                    </summary>
+                    <div className="mt-2 max-h-48 overflow-y-auto space-y-0.5">
+                      {allCollabs.length === 0 && <p className="text-red-500">Aucun collaborateur actif reçu de Supabase !</p>}
+                      {[...allCollabs].sort((a, b) => a.nom.localeCompare(b.nom)).map(c => (
+                        <div key={c.id}>{c.nom} {c.prenom}</div>
+                      ))}
+                    </div>
+                  </details>
+                </div>
               ) : (
                 filteredCollabs.map(c => (
                   <button
