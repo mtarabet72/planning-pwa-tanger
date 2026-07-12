@@ -110,6 +110,7 @@ export default function Validation() {
   const [commentaire, setCommentaire] = useState('');
   const [showRejet, setShowRejet] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [rayonPlannings, setRayonPlannings] = useState<RayonPlanning[]>([]);
   const [encPlannings, setEncPlannings] = useState<EncPlanning[]>([]);
@@ -161,32 +162,36 @@ export default function Validation() {
   }
 
   async function handleSoumettreRayon(id: string) {
-    setProcessing(true);
-    await supabase.from('plannings').update({ statut: 'soumis_dept', commentaire: null }).eq('id', id);
+    setProcessing(true); setErrorMsg(null);
+    const { error } = await supabase.from('plannings').update({ statut: 'soumis_dept', commentaire: null }).eq('id', id);
+    if (error) setErrorMsg(`Échec de la soumission : ${error.message}`);
     await loadRayon();
     setProcessing(false);
   }
 
   async function handleValiderDept(id: string) {
-    setProcessing(true);
-    await supabase.from('plannings').update({ statut: 'soumis_admin', commentaire: null }).eq('id', id);
+    setProcessing(true); setErrorMsg(null);
+    const { error } = await supabase.from('plannings').update({ statut: 'soumis_admin', commentaire: null }).eq('id', id);
+    if (error) setErrorMsg(`Échec de la validation : ${error.message}`);
     await loadRayon();
     setProcessing(false);
   }
 
   async function handleValiderFinal(id: string) {
-    setProcessing(true);
-    await supabase.from('plannings').update({
+    setProcessing(true); setErrorMsg(null);
+    const { error } = await supabase.from('plannings').update({
       statut: 'valide', valide_par: profile?.id, valide_at: new Date().toISOString(), commentaire: null,
     }).eq('id', id);
+    if (error) setErrorMsg(`Échec de la validation finale : ${error.message}`);
     await loadRayon();
     setProcessing(false);
   }
 
   async function handleRejeterRayon(id: string) {
     if (!commentaire.trim()) return;
-    setProcessing(true);
-    await supabase.from('plannings').update({ statut: 'brouillon', commentaire: commentaire.trim() }).eq('id', id);
+    setProcessing(true); setErrorMsg(null);
+    const { error } = await supabase.from('plannings').update({ statut: 'brouillon', commentaire: commentaire.trim() }).eq('id', id);
+    if (error) setErrorMsg(`Échec du rejet : ${error.message}`);
     setCommentaire(''); setShowRejet(null);
     await loadRayon();
     setProcessing(false);
@@ -221,25 +226,28 @@ export default function Validation() {
   }
 
   async function handleSoumettreEnc(id: string) {
-    setProcessing(true);
-    await supabase.from('plannings_encadrement').update({ statut: 'soumis', commentaire: null }).eq('id', id);
+    setProcessing(true); setErrorMsg(null);
+    const { error } = await supabase.from('plannings_encadrement').update({ statut: 'soumis', commentaire: null }).eq('id', id);
+    if (error) setErrorMsg(`Échec de la soumission : ${error.message}`);
     await loadEncadrement();
     setProcessing(false);
   }
 
   async function handleValiderEnc(id: string) {
-    setProcessing(true);
-    await supabase.from('plannings_encadrement').update({
+    setProcessing(true); setErrorMsg(null);
+    const { error } = await supabase.from('plannings_encadrement').update({
       statut: 'valide', valide_par: profile?.id, valide_at: new Date().toISOString(), commentaire: null,
     }).eq('id', id);
+    if (error) setErrorMsg(`Échec de la validation : ${error.message}`);
     await loadEncadrement();
     setProcessing(false);
   }
 
   async function handleRejeterEnc(id: string) {
     if (!commentaire.trim()) return;
-    setProcessing(true);
-    await supabase.from('plannings_encadrement').update({ statut: 'brouillon', commentaire: commentaire.trim() }).eq('id', id);
+    setProcessing(true); setErrorMsg(null);
+    const { error } = await supabase.from('plannings_encadrement').update({ statut: 'brouillon', commentaire: commentaire.trim() }).eq('id', id);
+    if (error) setErrorMsg(`Échec du rejet : ${error.message}`);
     setCommentaire(''); setShowRejet(null);
     await loadEncadrement();
     setProcessing(false);
@@ -270,31 +278,35 @@ export default function Validation() {
   }
 
   async function handleValiderPerm(id: string) {
-    setProcessing(true);
-    await supabase.from('plannings_permanence').update({
+    setProcessing(true); setErrorMsg(null);
+    const { error } = await supabase.from('plannings_permanence').update({
       statut: 'valide', valide_par: profile?.id, valide_at: new Date().toISOString(),
     }).eq('id', id);
+    if (error) setErrorMsg(`Échec de la validation : ${error.message}`);
     await loadDirection();
     setProcessing(false);
   }
 
   async function handleReprendrePerm(id: string) {
-    setProcessing(true);
-    await supabase.from('plannings_permanence').update({ statut: 'brouillon' }).eq('id', id);
+    setProcessing(true); setErrorMsg(null);
+    const { error } = await supabase.from('plannings_permanence').update({ statut: 'brouillon' }).eq('id', id);
+    if (error) setErrorMsg(`Échec : ${error.message}`);
     await loadDirection();
     setProcessing(false);
   }
 
   async function handleReprendreEncBrouillon(id: string) {
-    setProcessing(true);
-    await supabase.from('plannings_encadrement').update({ statut: 'brouillon', commentaire: null }).eq('id', id);
+    setProcessing(true); setErrorMsg(null);
+    const { error } = await supabase.from('plannings_encadrement').update({ statut: 'brouillon', commentaire: null }).eq('id', id);
+    if (error) setErrorMsg(`Échec : ${error.message}`);
     await loadEncadrement();
     setProcessing(false);
   }
 
   async function handleReprendreRayonBrouillon(id: string) {
-    setProcessing(true);
-    await supabase.from('plannings').update({ statut: 'brouillon', commentaire: null }).eq('id', id);
+    setProcessing(true); setErrorMsg(null);
+    const { error } = await supabase.from('plannings').update({ statut: 'brouillon', commentaire: null }).eq('id', id);
+    if (error) setErrorMsg(`Échec : ${error.message}`);
     await loadRayon();
     setProcessing(false);
   }
@@ -335,6 +347,13 @@ export default function Validation() {
           <button onClick={() => setSemaine(d => getLundi(addDays(d, 7)))} className="p-1 hover:bg-gray-100 rounded-lg"><ChevronRight className="w-4 h-4" /></button>
         </div>
       </div>
+
+      {errorMsg && (
+        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+          <span>{errorMsg}</span>
+          <button onClick={() => setErrorMsg(null)} className="text-red-400 hover:text-red-600 text-xs font-medium shrink-0">Fermer</button>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 text-blue-500 animate-spin" /></div>
@@ -407,7 +426,7 @@ export default function Validation() {
                             <>
                               <button onClick={() => handleValiderFinal(p.id)} disabled={processing}
                                 className="flex items-center gap-1.5 bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-medium hover:bg-emerald-700 disabled:opacity-60 transition">
-                                <CheckCircle className="w-3.5 h-3.5" /> Valider (Final)
+                                <CheckCircle className="w-3.5 h-3.5" /> Validation finale
                               </button>
                               <button onClick={() => setShowRejet(p.id)} disabled={processing}
                                 className="flex items-center gap-1.5 bg-red-500 text-white px-4 py-2 rounded-xl text-xs font-medium hover:bg-red-600 disabled:opacity-60 transition">
@@ -483,7 +502,7 @@ export default function Validation() {
                           <>
                             <button onClick={() => handleValiderEnc(p.id)} disabled={processing}
                               className="flex items-center gap-1.5 bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-medium hover:bg-emerald-700 disabled:opacity-60 transition">
-                              <CheckCircle className="w-3.5 h-3.5" /> Valider
+                              <CheckCircle className="w-3.5 h-3.5" /> Validation finale
                             </button>
                             <button onClick={() => setShowRejet(p.id)} disabled={processing}
                               className="flex items-center gap-1.5 bg-red-500 text-white px-4 py-2 rounded-xl text-xs font-medium hover:bg-red-600 disabled:opacity-60 transition">
@@ -538,7 +557,7 @@ export default function Validation() {
                       {isAdmin && p.statut === 'brouillon' && (
                         <button onClick={() => handleValiderPerm(p.id)} disabled={processing}
                           className="flex items-center gap-1.5 bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-medium hover:bg-emerald-700 disabled:opacity-60 transition">
-                          <CheckCircle className="w-3.5 h-3.5" /> Valider
+                          <CheckCircle className="w-3.5 h-3.5" /> Validation finale
                         </button>
                       )}
                       {isAdmin && p.statut === 'valide' && (
