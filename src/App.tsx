@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, X, UserCog, LayoutGrid, Building2, User, Bell, ClipboardCheck, History, MoreHorizontal, Users2, Crown } from 'lucide-react';
+import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, X, UserCog, LayoutGrid, Building2, User, Bell, ClipboardCheck, History, MoreHorizontal, Users2, Crown, Trash2 } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import ImportCollaborateurs from './pages/ImportCollaborateurs';
@@ -16,6 +16,7 @@ import Validation from './pages/Validation';
 import Historique from './pages/Historique';
 import PlanningEncadrement from './pages/PlanningEncadrement';
 import PlanningDirection from './pages/PlanningDirection';
+import Reinitialisation from './pages/Reinitialisation';
 import { ROLE_LABELS, canAccessAdmin } from './types';
 import { useNotifications } from './hooks/useNotifications';
 
@@ -36,7 +37,7 @@ function FullScreenMessage({ title, body, onSignOut }: { title: string; body: st
 function AppShell() {
   const { profile, signOut } = useAuth();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'planning' | 'encadrement' | 'direction' | 'validation' | 'historique' | 'consolidation' | 'admin' | 'reports' | 'profil'>('dashboard');
-  const [adminSection, setAdminSection] = useState<'menu' | 'collaborateurs' | 'utilisateurs' | 'rayons' | 'departements'>('menu');
+  const [adminSection, setAdminSection] = useState<'menu' | 'collaborateurs' | 'utilisateurs' | 'rayons' | 'departements' | 'reinitialisation'>('menu');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -83,6 +84,7 @@ function AppShell() {
     utilisateurs: 'Utilisateurs',
     rayons: 'Rayons',
     departements: 'Départements',
+    reinitialisation: 'Réinitialisation',
   };
 
   const pageTitle: Record<typeof activeTab, string> = {
@@ -363,12 +365,18 @@ function AppShell() {
                     <div className="font-semibold">Départements</div>
                     <div className="text-xs text-gray-500 mt-1">Gérer les départements</div>
                   </button>
+                  <button onClick={() => setAdminSection('reinitialisation')} className="p-6 bg-white border border-red-100 rounded-2xl hover:shadow-md hover:border-red-300 transition text-left sm:col-span-2">
+                    <Trash2 className="w-8 h-8 mb-3 text-red-600" />
+                    <div className="font-semibold text-red-700">Réinitialisation</div>
+                    <div className="text-xs text-gray-500 mt-1">Effacer comptes, collaborateurs et plannings pour repartir de zéro</div>
+                  </button>
                 </div>
               )}
               {adminSection === 'utilisateurs' && <Utilisateurs />}
               {adminSection === 'collaborateurs' && <Collaborateurs />}
               {adminSection === 'rayons' && <Rayons />}
               {adminSection === 'departements' && <Departements />}
+              {adminSection === 'reinitialisation' && <Reinitialisation />}
             </>
           )}
         </div>
