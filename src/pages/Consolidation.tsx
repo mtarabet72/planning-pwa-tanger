@@ -128,18 +128,18 @@ export default function Consolidation() {
   async function loadAll() {
     setLoading(true);
 
-    if (profile?.departement_id) {
-      const { data: dep } = await supabase
-        .from('departements').select('nom').eq('id', profile.departement_id).single();
-      setDepNomGlobal(dep?.nom ?? '');
+    if ((profile?.departement_ids?.length ?? 0) > 0) {
+      const { data: deps } = await supabase
+        .from('departements').select('nom').in('id', profile!.departement_ids);
+      setDepNomGlobal((deps ?? []).map((d: { nom: string }) => d.nom).join(', '));
     } else if (isAdmin) {
       setDepNomGlobal('Tous les départements');
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rayQuery: any = supabase.from('rayons').select('id, nom, numero, departement_id, departements(nom)').eq('actif', true).order('nom');
-    if (profile?.role === 'chef_departement' && profile.departement_id) {
-      rayQuery = rayQuery.eq('departement_id', profile.departement_id);
+    if (profile?.role === 'chef_departement' && (profile.departement_ids?.length ?? 0) > 0) {
+      rayQuery = rayQuery.in('departement_id', profile.departement_ids);
     }
     const { data: rayons } = await rayQuery;
     if (!rayons?.length) { setRayonsData([]); setLoading(false); return; }
