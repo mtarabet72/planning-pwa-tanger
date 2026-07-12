@@ -216,7 +216,9 @@ export default function PlanningDirection() {
       return;
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    console.log('[DEBUG permanence] collaborateurs actifs reçus de Supabase :', data);
+    console.log(`[DEBUG permanence] ${(data ?? []).length} collaborateurs actifs reçus de Supabase`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    console.table(((data ?? []) as any[]).map(c => ({ id: c.id, nom: c.nom, prenom: c.prenom, rayon: c.rayons?.nom ?? '—' })));
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setAllCollabs(((data ?? []) as any[]).map(c => ({ id: c.id, nom: c.nom, prenom: c.prenom, rayonNom: c.rayons?.nom ?? '—' })));
   }
