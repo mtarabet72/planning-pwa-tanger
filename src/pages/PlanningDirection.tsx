@@ -208,8 +208,13 @@ export default function PlanningDirection() {
   }
 
   async function loadAllCollabs() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('collaborateurs').select('id, nom, prenom, rayons(nom)').eq('actif', true).order('nom');
+    if (error) {
+      console.error('Erreur chargement collaborateurs (permanence) :', error);
+      alert(`Impossible de charger la liste des collaborateurs :\n${error.message}`);
+      return;
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setAllCollabs(((data ?? []) as any[]).map(c => ({ id: c.id, nom: c.nom, prenom: c.prenom, rayonNom: c.rayons?.nom ?? '—' })));
   }
