@@ -67,16 +67,16 @@ export default function Dashboard() {
     const semaineCourante = getLundi(new Date());
 
     let rayonIds: string[] = [];
-    if (isChefDep && profile?.departement_id) {
+    if (isChefDep && (profile?.departement_ids?.length ?? 0) > 0) {
       const { data: rays } = await supabase
-        .from('rayons').select('id').eq('departement_id', profile.departement_id);
+        .from('rayons').select('id').in('departement_id', profile!.departement_ids);
       rayonIds = (rays ?? []).map((r: { id: string }) => r.id);
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let colQuery: any = supabase.from('collaborateurs').select('id, actif, rayon_id, rayons(nom)');
-    if (profile?.role === 'chef_rayon' && profile.rayon_id) {
-      colQuery = colQuery.eq('rayon_id', profile.rayon_id);
+    if (profile?.role === 'chef_rayon' && profile.rayon_ids.length > 0) {
+      colQuery = colQuery.in('rayon_id', profile.rayon_ids);
     } else if (isChefDep && rayonIds.length > 0) {
       colQuery = colQuery.in('rayon_id', rayonIds);
     }
@@ -98,8 +98,8 @@ export default function Dashboard() {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let planQuery: any = supabase.from('plannings').select('id', { count: 'exact' }).eq('semaine_debut', semaineCourante);
-    if (profile?.role === 'chef_rayon' && profile.rayon_id) {
-      planQuery = planQuery.eq('rayon_id', profile.rayon_id);
+    if (profile?.role === 'chef_rayon' && profile.rayon_ids.length > 0) {
+      planQuery = planQuery.in('rayon_id', profile.rayon_ids);
     } else if (isChefDep && rayonIds.length > 0) {
       planQuery = planQuery.in('rayon_id', rayonIds);
     }
@@ -107,10 +107,10 @@ export default function Dashboard() {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rayonsQuery: any = supabase.from('rayons').select('id', { count: 'exact' }).eq('actif', true);
-    if (isChefDep && profile?.departement_id) {
-      rayonsQuery = rayonsQuery.eq('departement_id', profile.departement_id);
-    } else if (profile?.role === 'chef_rayon' && profile.rayon_id) {
-      rayonsQuery = rayonsQuery.eq('id', profile.rayon_id);
+    if (isChefDep && (profile?.departement_ids?.length ?? 0) > 0) {
+      rayonsQuery = rayonsQuery.in('departement_id', profile!.departement_ids);
+    } else if (profile?.role === 'chef_rayon' && profile.rayon_ids.length > 0) {
+      rayonsQuery = rayonsQuery.in('id', profile.rayon_ids);
     }
     const { count: rayonsCount } = await rayonsQuery;
 
