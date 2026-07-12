@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
 import { detecterAnomalies, type Anomalie } from '../lib/anomalies';
 import { useAuth } from './AuthContext';
 
@@ -20,6 +20,7 @@ interface AssistantContextValue {
 }
 
 const AssistantContext = createContext<AssistantContextValue | null>(null);
+const MAX_MESSAGES = 50;
 
 export function AssistantProvider({ children }: { children: ReactNode }) {
   const { profile } = useAuth();
@@ -31,6 +32,18 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpenState] = useState(false);
 
+  const checkingRef = useRef(false); // évite les vérifications concurrentes (état "checking" seul est sujet aux closures obsolètes)
+  const lastDateRef = useRef<Date>(new Date()); // mémorise la dernière semaine vérifiée, pour que "vérifie" tapé au clavier porte sur la même semaine que la dernière sauvegarde
+  const msgCounterRef = useRef(0);
+  const nextId = (prefix: string) => `${prefix}_${Date.now()}_${msgCounterRef.current++}`;
+
+  const pushMessage = useCallback((msg: Omit<ChatMessage, 'id'> & { id?: string }) => {
+    setMessages(prev => {
+      const next = [...prev, { id: msg.id ?? nextId(msg.role), role: msg.role, text: msg.text }];
+      return next.length > MAX_MESSAGES ? next.slice(next.length - MAX_MESSAGES) : next;
+    });
+  }, []);
+
   const setOpen = useCallback((v: boolean) => {
     setOpenState(v);
     if (v) setUnreadCount(0);
@@ -38,49 +51,38 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
 
   const runCheck = useCallback(async (date?: Date) => {
     if (!profile) return;
+    if (checkingRef.current) return; // une vérification est déjà en cours, on ignore ce nouvel appel
+    checkingRef.current = true;
     setChecking(true);
+    const effectiveDate = date ?? lastDateRef.current;
+    lastDateRef.current = effectiveDate;
     try {
-      const found = await detecterAnomalies(profile, date ?? new Date());
+      const found = await detecterAnomalies(profile, effectiveDate);
       setAnomalies(found);
       if (found.length === 0) {
-        setMessages(prev => [...prev, {
-          id: `check_${Date.now()}`,
-          role: 'assistant',
-          text: '✅ Aucune anomalie détectée sur cette semaine.',
-        }]);
+        pushMessage({ role: 'assistant', text: '✅ Aucune anomalie détectée sur cette semaine.' });
       } else {
         const lines = found.map(a => `• ${a.message}`).join('\n');
-        setMessages(prev => [...prev, {
-          id: `check_${Date.now()}`,
-          role: 'assistant',
-          text: `⚠️ ${found.length} anomalie(s) détectée(s) :\n${lines}`,
-        }]);
+        pushMessage({ role: 'assistant', text: `⚠️ ${found.length} anomalie(s) détectée(s) :\n${lines}` });
         setUnreadCount(c => c + found.length);
       }
     } catch (err: any) {
-      setMessages(prev => [...prev, {
-        id: `err_${Date.now()}`,
-        role: 'assistant',
-        text: `Erreur pendant la vérification : ${err?.message ?? err}`,
-      }]);
+      pushMessage({ role: 'assistant', text: `Erreur pendant la vérification : ${err?.message ?? err}` });
     } finally {
+      checkingRef.current = false;
       setChecking(false);
     }
-  }, [profile]);
+  }, [profile, pushMessage]);
 
   const askUser = useCallback((text: string) => {
-    setMessages(prev => [...prev, { id: `u_${Date.now()}`, role: 'user', text }]);
+    pushMessage({ role: 'user', text });
     const t = text.trim().toLowerCase();
     if (t.includes('vérifi') || t.includes('verifi') || t.includes('check')) {
       void runCheck();
     } else {
-      setMessages(prev => [...prev, {
-        id: `a_${Date.now()}`,
-        role: 'assistant',
-        text: "Je peux surveiller : double affectation et repos hebdomadaire manquant. Tapez \"vérifie\" pour lancer un contrôle sur la semaine en cours.",
-      }]);
+      pushMessage({ role: 'assistant', text: "Je peux surveiller : double affectation et repos hebdomadaire manquant. Tapez \"vérifie\" pour lancer un contrôle sur la semaine en cours." });
     }
-  }, [runCheck]);
+  }, [runCheck, pushMessage]);
 
   return (
     <AssistantContext.Provider value={{ anomalies, messages, checking, unreadCount, open, setOpen, runCheck, askUser }}>
