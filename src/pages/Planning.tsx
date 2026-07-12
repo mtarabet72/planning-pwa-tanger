@@ -143,10 +143,10 @@ export default function Planning() {
   async function loadRayons() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let query: any = supabase.from('rayons').select('id, nom, numero, departement_id, departements(nom)').order('nom');
-    if (profile?.role === 'chef_rayon' && profile.rayon_id) {
-      query = query.eq('id', profile.rayon_id);
-    } else if (isChefDep && profile?.departement_id) {
-      query = query.eq('departement_id', profile.departement_id);
+    if (profile?.role === 'chef_rayon' && profile.rayon_ids.length > 0) {
+      query = query.in('id', profile.rayon_ids);
+    } else if (isChefDep && (profile?.departement_ids?.length ?? 0) > 0) {
+      query = query.in('departement_id', profile.departement_ids);
     }
     const { data } = await query;
     const list = (data as Rayon[]) ?? [];
@@ -394,7 +394,7 @@ export default function Planning() {
     <div className="space-y-3">
 
       <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
-        {(isAdmin || isChefDep) && rayons.length > 1 && (
+        {(isAdmin || isChefDep || isChefRayon) && rayons.length > 1 && (
           <select
             value={rayonId}
             onChange={e => {
