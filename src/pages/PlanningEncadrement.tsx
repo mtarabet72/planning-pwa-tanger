@@ -105,6 +105,7 @@ export default function PlanningEncadrement() {
   const [semaine, setSemaine] = useState<Date>(getLundi(new Date()));
   const [depNom, setDepNom] = useState('');
   const [departementId, setDepartementId] = useState('');
+  const [departementsOptions, setDepartementsOptions] = useState<{ id: string; nom: string }[]>([]);
   const [collaborateurs, setCollaborateurs] = useState<Collaborateur[]>([]);
   const [grille, setGrille] = useState<Grille>({});
   const [planningId, setPlanningId] = useState<string | null>(null);
@@ -123,11 +124,24 @@ export default function PlanningEncadrement() {
   useEffect(() => { if (departementId) loadPlanning(); }, [departementId, semaine]);
 
   async function init() {
-    if (isChefDep && profile?.departement_id) {
-      setDepartementId(profile.departement_id);
-      const { data: dep } = await supabase.from('departements').select('nom').eq('id', profile.departement_id).single();
-      setDepNom(dep?.nom ?? '');
+    if (isChefDep && (profile?.departement_ids?.length ?? 0) > 0) {
+      const { data: deps } = await supabase
+        .from('departements').select('id, nom').in('id', profile!.departement_ids).order('nom');
+      const list = deps ?? [];
+      setDepartementsOptions(list);
+      if (list.length > 0) {
+        setDepartementId(list[0].id);
+        setDepNom(list[0].nom);
+      }
+    } else if (isAdmin) {
+      const { data: deps } = await supabase.from('departements').select('id, nom').order('nom');
+      setDepartementsOptions(deps ?? []);
     }
+  }
+
+  function handleChangeDepartement(id: string) {
+    setDepartementId(id);
+    setDepNom(departementsOptions.find(d => d.id === id)?.nom ?? '');
   }
 
   async function loadPlanning() {
@@ -325,6 +339,16 @@ export default function PlanningEncadrement() {
     <div className="space-y-4">
 
       <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
+        {departementsOptions.length > 1 && (
+          <select value={departementId} onChange={e => handleChangeDepartement(e.target.value)}
+            className="bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-purple-400">
+            <option value="" disabled>Choisir un département…</option>
+            {departementsOptions.map(d => (
+              <option key={d.id} value={d.id}>{d.nom}</option>
+            ))}
+          </select>
+        )}
+
         <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2">
           <button onClick={() => setSemaine(d => getLundi(addDays(d, -7)))} className="p-1 hover:bg-gray-100 rounded-lg">
             <ChevronLeft className="w-4 h-4" />
