@@ -1,93 +1,47 @@
-import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
-import type { Profile } from '../types';
+export type Role = 'administrateur' | 'chef_departement' | 'chef_rayon';
 
-export interface RayonSansPlanning {
+export const ROLE_LABELS: Record<Role, string> = {
+  administrateur: 'Administrateur',
+  chef_departement: 'Chef de Département',
+  chef_rayon: 'Chef de Rayon',
+};
+
+export interface Departement {
+  id: string;
+  code: string;
+  nom: string;
+}
+
+export interface Rayon {
+  id: string;
+  numero: string | null;
+  nom: string;
+  departement_id: string;
+  actif: boolean;
+}
+
+export interface Profile {
   id: string;
   nom: string;
-  depNom: string;
-  nb_collaborateurs: number;
+  prenom: string;
+  role: Role;
+  departement_ids: string[];
+  rayon_ids: string[];
+  actif: boolean;
 }
 
-function getLundi(date: Date): string {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
+/** Helpers de compatibilité — un profil peut désormais gérer plusieurs rayons/départements. */
+export function profileRayonIds(p: Pick<Profile, 'rayon_ids'> | null | undefined): string[] {
+  return p?.rayon_ids ?? [];
+}
+export function profileDepartementIds(p: Pick<Profile, 'departement_ids'> | null | undefined): string[] {
+  return p?.departement_ids ?? [];
 }
 
-export function useNotifications(profile: Profile | null) {
-  const [rayonsSansPlanning, setRayonsSansPlanning] = useState<RayonSansPlanning[]>([]);
-  const [loading, setLoading] = useState(false);
+export function canAccessAdmin(role: Role): boolean {
+  return role === 'administrateur';
+}
 
-  useEffect(() => {
-    if (!profile) return;
-    load();
-  }, [profile]);
-
-  async function load() {
-    if (!profile) return;
-    setLoading(true);
-
-    const semaine = getLundi(new Date());
-    const isChefDep = profile.role === 'chef_departement';
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let rayQuery: any = supabase
-      .from('rayons')
-      .select('id, nom, departements(nom)')
-      .eq('actif', true)
-      .order('nom');
-
-    if (profile.role === 'chef_rayon' && profile.rayon_id) {
-      rayQuery = rayQuery.eq('id', profile.rayon_id);
-    } else if (isChefDep && profile.departement_id) {
-      rayQuery = rayQuery.eq('departement_id', profile.departement_id);
-    }
-
-    const { data: rayons } = await rayQuery;
-    if (!rayons?.length) { setRayonsSansPlanning([]); setLoading(false); return; }
-
-    const { data: plannings } = await supabase
-      .from('plannings')
-      .select('rayon_id')
-      .eq('semaine_debut', semaine);
-
-    const planifiesIds = new Set((plannings ?? []).map((p: { rayon_id: string }) => p.rayon_id));
-
-    const { data: cols } = await supabase
-      .from('collaborateurs')
-      .select('rayon_id')
-      .eq('actif', true);
-
-    const colMap: Record<string, number> = {};
-    for (const c of (cols ?? []) as { rayon_id: string }[]) {
-      if (c.rayon_id) colMap[c.rayon_id] = (colMap[c.rayon_id] ?? 0) + 1;
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const retard: RayonSansPlanning[] = (rayons as any[])
-      .filter(r => !planifiesIds.has(r.id))
-      .filter(r => (colMap[r.id] ?? 0) > 0)
-      .map(r => ({
-        id: r.id,
-        nom: r.nom,
-        depNom: r.departements?.nom ?? '—',
-        nb_collaborateurs: colMap[r.id] ?? 0,
-      }));
-
-    setRayonsSansPlanning(retard);
-    setLoading(false);
-  }
-
-  return {
-    rayonsSansPlanning,
-    count: rayonsSansPlanning.length,
-    loading,
-    refresh: load,
-  };
+export function canConsolidateDepartement(role: Role): boolean {
+  return role === 'administrateur' || role === 'chef_departement';
 }
