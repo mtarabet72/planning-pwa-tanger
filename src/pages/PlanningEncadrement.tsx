@@ -224,32 +224,40 @@ export default function PlanningEncadrement() {
 
   async function handleSave() {
     setSaving(true);
-    const debut = formatDate(semaine);
-    let pid = planningId;
+    try {
+      const debut = formatDate(semaine);
+      let pid = planningId;
 
-    if (!pid) {
-      const { data } = await supabase.from('plannings_encadrement')
-        .upsert({ departement_id: departementId, semaine_debut: debut, created_by: profile?.id },
-          { onConflict: 'departement_id,semaine_debut' })
-        .select('id').single();
-      pid = data?.id ?? null;
-      setPlanningId(pid);
-    }
-
-    if (!pid) { setSaving(false); return; }
-
-    const lignes = [];
-    for (const [colId, jmap] of Object.entries(grille)) {
-      for (const [jour, poste] of Object.entries(jmap)) {
-        lignes.push({ planning_id: pid, collaborateur_id: colId, jour, poste });
+      if (!pid) {
+        const { data, error: errUpsertPlanning } = await supabase.from('plannings_encadrement')
+          .upsert({ departement_id: departementId, semaine_debut: debut, created_by: profile?.id },
+            { onConflict: 'departement_id,semaine_debut' })
+          .select('id').single();
+        if (errUpsertPlanning) throw errUpsertPlanning;
+        pid = data?.id ?? null;
+        setPlanningId(pid);
       }
-    }
-    await supabase.from('planning_encadrement_lignes')
-      .upsert(lignes, { onConflict: 'planning_id,collaborateur_id,jour' });
 
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+      if (!pid) { setSaving(false); return; }
+
+      const lignes = [];
+      for (const [colId, jmap] of Object.entries(grille)) {
+        for (const [jour, poste] of Object.entries(jmap)) {
+          lignes.push({ planning_id: pid, collaborateur_id: colId, jour, poste });
+        }
+      }
+      const { error: errUpsertLignes } = await supabase.from('planning_encadrement_lignes')
+        .upsert(lignes, { onConflict: 'planning_id,collaborateur_id,jour' });
+      if (errUpsertLignes) throw errUpsertLignes;
+
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err: any) {
+      console.error('[DEBUG planning encadrement] Erreur sauvegarde :', err);
+      alert(`Erreur lors de la sauvegarde du planning :\n${err?.message ?? err}`);
+    } finally {
+      setSaving(false);
+    }
   }
 
   function handleExportPDF() {
