@@ -209,12 +209,14 @@ export default function PlanningDirection() {
 
   async function loadAllCollabs() {
     const { data, error } = await supabase
-      .from('collaborateurs').select('id, nom, prenom, rayons(nom)').eq('actif', true).order('nom');
+      .from('collaborateurs').select('id, nom, prenom, actif, rayons(nom)').eq('actif', true).order('nom');
     if (error) {
       console.error('Erreur chargement collaborateurs (permanence) :', error);
       alert(`Impossible de charger la liste des collaborateurs :\n${error.message}`);
       return;
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    console.log('[DEBUG permanence] collaborateurs actifs reçus de Supabase :', data);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setAllCollabs(((data ?? []) as any[]).map(c => ({ id: c.id, nom: c.nom, prenom: c.prenom, rayonNom: c.rayons?.nom ?? '—' })));
   }
@@ -933,6 +935,7 @@ export default function PlanningDirection() {
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col">
             <div className="flex items-center justify-between p-6 border-b border-gray-100">
               <h3 className="font-semibold text-lg">Ajouter un membre</h3>
+              <p className="text-[10px] text-gray-400">[DEBUG] {allCollabs.length} actif(s) chargé(s) · {permMembres.length} déjà membre(s) · {filteredCollabs.length} affiché(s)</p>
               <button onClick={() => { setShowAddMembre(false); setSearchMembre(''); }} className="p-2 hover:bg-gray-100 rounded-xl">
                 <X className="w-5 h-5" />
               </button>
