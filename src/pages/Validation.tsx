@@ -300,7 +300,7 @@ export default function Validation() {
   }
 
   const tabs = [
-    { id: 'rayon', label: 'Plannings Rayon', icon: Calendar },
+    { id: 'rayon', label: 'Plannings Rayon', icon: Calendar, hidden: false },
     { id: 'encadrement', label: 'Encadrement', icon: Users2, hidden: !(isAdmin || isChefDep) },
     { id: 'direction', label: 'Permanence & Direction', icon: Shield, hidden: !isAdmin },
   ] as const;
