@@ -7,7 +7,7 @@ import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 
 type Poste = 'M' | 'T' | 'S' | 'R' | 'C' | 'HN' | 'MAL' | 'AT' | 'FOR';
-type Statut = 'brouillon' | 'soumis' | 'valide' | 'rejete';
+type Statut = 'brouillon' | 'soumis_dept' | 'soumis_admin' | 'valide' | 'rejete';
 
 // Cycle rapide (clic simple)
 const POSTES_CYCLE: Poste[] = ['M', 'T', 'S', 'R', 'C'];
@@ -134,7 +134,7 @@ export default function Planning() {
   const touchEndX = useRef<number>(0);
 
   const jours = Array.from({ length: 7 }, (_, i) => addDays(semaine, i));
-  const readOnly = planningStatut === 'soumis' || planningStatut === 'valide';
+  const readOnly = planningStatut === 'soumis_dept' || planningStatut === 'soumis_admin' || planningStatut === 'valide';
   const numSemaine = getNumeroSemaine(semaine);
 
   useEffect(() => { loadRayons(); }, []);
@@ -274,8 +274,8 @@ export default function Planning() {
   async function handleSoumettre() {
     if (!planningId) return;
     setSubmitting(true);
-    await supabase.from('plannings').update({ statut: 'soumis', commentaire: null }).eq('id', planningId);
-    setPlanningStatut('soumis');
+    await supabase.from('plannings').update({ statut: 'soumis_dept', commentaire: null }).eq('id', planningId);
+    setPlanningStatut('soumis_dept');
     setSubmitting(false);
   }
 
@@ -467,12 +467,14 @@ export default function Planning() {
         <div className="flex items-center gap-2 flex-wrap">
           <span className={`text-xs px-3 py-1.5 rounded-full font-medium ${
             planningStatut === 'brouillon' ? 'bg-gray-100 text-gray-600' :
-            planningStatut === 'soumis' ? 'bg-amber-100 text-amber-700' :
+            planningStatut === 'soumis_dept' ? 'bg-amber-100 text-amber-700' :
+            planningStatut === 'soumis_admin' ? 'bg-blue-100 text-blue-700' :
             planningStatut === 'valide' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
           }`}>
             {planningStatut === 'brouillon' ? 'Brouillon' :
-             planningStatut === 'soumis' ? 'Soumis — en attente de validation' :
-             planningStatut === 'valide' ? 'Validé ✓' : 'Rejeté'}
+             planningStatut === 'soumis_dept' ? "Soumis — en attente du Chef de Département" :
+             planningStatut === 'soumis_admin' ? "Validé par le Département — en attente de l'Admin" :
+             planningStatut === 'valide' ? 'Validé (Final) ✓' : 'Rejeté'}
           </span>
           {planningCommentaire && (
             <span className="text-xs text-red-600 bg-red-50 px-3 py-1.5 rounded-full">
