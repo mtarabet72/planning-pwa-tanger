@@ -163,12 +163,14 @@ export default function Collaborateurs() {
       departements_geres_ids: form.fonction === 'chef_departement' ? form.departements_geres_ids : [],
       actif: form.actif,
     };
-    if (editId) {
-      await supabase.from('collaborateurs').update(payload).eq('id', editId);
-    } else {
-      await supabase.from('collaborateurs').insert(payload);
-    }
+    const { error } = editId
+      ? await supabase.from('collaborateurs').update(payload).eq('id', editId)
+      : await supabase.from('collaborateurs').insert(payload);
     setSaving(false);
+    if (error) {
+      alert(`Erreur lors de l'enregistrement du collaborateur :\n${error.message}`);
+      return;
+    }
     setShowForm(false);
     loadAll();
   }
