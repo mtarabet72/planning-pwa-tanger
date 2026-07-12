@@ -25,9 +25,17 @@ export interface Profile {
   nom: string;
   prenom: string;
   role: Role;
-  departement_id: string | null;
-  rayon_id: string | null;
+  departement_ids: string[];
+  rayon_ids: string[];
   actif: boolean;
+}
+
+/** Helpers de compatibilité — un profil peut désormais gérer plusieurs rayons/départements. */
+export function profileRayonIds(p: Pick<Profile, 'rayon_ids'> | null | undefined): string[] {
+  return p?.rayon_ids ?? [];
+}
+export function profileDepartementIds(p: Pick<Profile, 'departement_ids'> | null | undefined): string[] {
+  return p?.departement_ids ?? [];
 }
 
 export function canAccessAdmin(role: Role): boolean {
