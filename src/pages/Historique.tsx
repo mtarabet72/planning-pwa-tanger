@@ -147,10 +147,10 @@ export default function Historique() {
     setDepartements(deps ?? []);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rayQuery: any = supabase.from('rayons').select('id, nom, departement_id').eq('actif', true).order('nom');
-    if (profile?.role === 'chef_rayon' && profile.rayon_id) {
-      rayQuery = rayQuery.eq('id', profile.rayon_id);
-    } else if (isChefDep && profile?.departement_id) {
-      rayQuery = rayQuery.eq('departement_id', profile.departement_id);
+    if (profile?.role === 'chef_rayon' && profile.rayon_ids.length > 0) {
+      rayQuery = rayQuery.in('id', profile.rayon_ids);
+    } else if (isChefDep && (profile?.departement_ids?.length ?? 0) > 0) {
+      rayQuery = rayQuery.in('departement_id', profile.departement_ids);
     }
     const { data: rays } = await rayQuery;
     setRayons(rays ?? []);
@@ -172,10 +172,10 @@ export default function Historique() {
       .lte('semaine_debut', finMois)
       .order('semaine_debut', { ascending: false });
 
-    if (profile?.role === 'chef_rayon' && profile.rayon_id) {
-      query = query.eq('rayon_id', profile.rayon_id);
-    } else if (isChefDep && profile?.departement_id) {
-      const { data: rays } = await supabase.from('rayons').select('id').eq('departement_id', profile.departement_id);
+    if (profile?.role === 'chef_rayon' && profile.rayon_ids.length > 0) {
+      query = query.in('rayon_id', profile.rayon_ids);
+    } else if (isChefDep && (profile?.departement_ids?.length ?? 0) > 0) {
+      const { data: rays } = await supabase.from('rayons').select('id').in('departement_id', profile.departement_ids);
       query = query.in('rayon_id', (rays ?? []).map((r: { id: string }) => r.id));
     }
 
