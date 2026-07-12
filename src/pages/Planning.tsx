@@ -246,46 +246,68 @@ export default function Planning() {
   async function handleSave() {
     if (readOnly) return;
     setSaving(true);
-    const debut = formatDate(semaine);
-    let pid = planningId;
-    if (!pid) {
-      const { data } = await supabase.from('plannings')
-        .upsert({ rayon_id: rayonId, semaine_debut: debut, created_by: profile?.id, statut: 'brouillon' },
-          { onConflict: 'rayon_id,semaine_debut' })
-        .select('id').single();
-      pid = data?.id ?? null;
-      setPlanningId(pid);
-      setPlanningStatut('brouillon');
-    }
-    if (!pid) { setSaving(false); return; }
-    const lignes = [];
-    for (const [colId, jours_map] of Object.entries(grille)) {
-      for (const [jour, poste] of Object.entries(jours_map)) {
-        lignes.push({ planning_id: pid, collaborateur_id: colId, jour, poste });
+    try {
+      const debut = formatDate(semaine);
+      let pid = planningId;
+      if (!pid) {
+        const { data, error: errUpsertPlanning } = await supabase.from('plannings')
+          .upsert({ rayon_id: rayonId, semaine_debut: debut, created_by: profile?.id, statut: 'brouillon' },
+            { onConflict: 'rayon_id,semaine_debut' })
+          .select('id').single();
+        if (errUpsertPlanning) throw errUpsertPlanning;
+        pid = data?.id ?? null;
+        setPlanningId(pid);
+        setPlanningStatut('brouillon');
       }
+      if (!pid) { setSaving(false); return; }
+      const lignes = [];
+      for (const [colId, jours_map] of Object.entries(grille)) {
+        for (const [jour, poste] of Object.entries(jours_map)) {
+          lignes.push({ planning_id: pid, collaborateur_id: colId, jour, poste });
+        }
+      }
+      const { error: errUpsertLignes } = await supabase.from('planning_lignes')
+        .upsert(lignes, { onConflict: 'planning_id,collaborateur_id,jour' });
+      if (errUpsertLignes) throw errUpsertLignes;
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err: any) {
+      console.error('[DEBUG planning] Erreur sauvegarde :', err);
+      alert(`Erreur lors de la sauvegarde du planning :\n${err?.message ?? err}`);
+    } finally {
+      setSaving(false);
     }
-    await supabase.from('planning_lignes')
-      .upsert(lignes, { onConflict: 'planning_id,collaborateur_id,jour' });
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
   }
 
   async function handleSoumettre() {
     if (!planningId) return;
     setSubmitting(true);
-    await supabase.from('plannings').update({ statut: 'soumis_dept', commentaire: null }).eq('id', planningId);
-    setPlanningStatut('soumis_dept');
-    setSubmitting(false);
+    try {
+      const { error } = await supabase.from('plannings').update({ statut: 'soumis_dept', commentaire: null }).eq('id', planningId);
+      if (error) throw error;
+      setPlanningStatut('soumis_dept');
+    } catch (err: any) {
+      console.error('[DEBUG planning] Erreur soumission :', err);
+      alert(`Erreur lors de la soumission du planning :\n${err?.message ?? err}`);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   async function handleReprendreEnBrouillon() {
     if (!planningId) return;
     setSubmitting(true);
-    await supabase.from('plannings').update({ statut: 'brouillon', commentaire: null }).eq('id', planningId);
-    setPlanningStatut('brouillon');
-    setPlanningCommentaire(null);
-    setSubmitting(false);
+    try {
+      const { error } = await supabase.from('plannings').update({ statut: 'brouillon', commentaire: null }).eq('id', planningId);
+      if (error) throw error;
+      setPlanningStatut('brouillon');
+      setPlanningCommentaire(null);
+    } catch (err: any) {
+      console.error('[DEBUG planning] Erreur reprise en brouillon :', err);
+      alert(`Erreur :\n${err?.message ?? err}`);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   function handleExportPDF() {
