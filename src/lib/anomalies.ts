@@ -6,8 +6,16 @@ import type { Profile } from '../types';
 const POSTES_TRAVAIL = new Set(['M', 'T', 'S', 'HN', 'FOR']);
 const POSTE_REPOS = 'R';
 const MAX_REPOS_PAR_SEMAINE = 1; // au-delà, anomalie "trop de repos"
+const POSTE_MATIN = 'M';
+const POSTES_SOIR_TRANCHE = new Set(['S', 'T']);
 
-export type AnomalieType = 'double_affectation' | 'repos_hebdo' | 'trop_repos';
+export type AnomalieType =
+  | 'double_affectation'
+  | 'repos_hebdo'
+  | 'trop_repos'
+  | 'effectif1_hors_matin'
+  | 'effectif2_couverture'
+  | 'effectif3_repartition';
 
 export interface Anomalie {
   id: string;
@@ -23,6 +31,7 @@ interface LigneBrute {
   jour: string; // YYYY-MM-DD
   poste: string;
   source: 'Planning Rayon' | 'Encadrement' | 'Permanence' | 'Direction';
+  rayon_id?: string; // renseigné uniquement pour les lignes issues du planning Rayon
 }
 
 function formatDate(date: Date): string {
@@ -90,16 +99,25 @@ async function fetchLignesSemaine(profile: Profile, semaineDebut: string): Promi
   // 1. Plannings rayon (visible par admin, chef_departement sur ses rayons, chef_rayon sur les siens)
   if (isAdmin || isChefDept || isChefRayon) {
     try {
-      let q = supabase.from('plannings').select('id').eq('semaine_debut', semaineDebut);
+      let q = supabase.from('plannings').select('id, rayon_id').eq('semaine_debut', semaineDebut);
       if (rayonIdsScope !== null) q = safeIn(q, 'rayon_id', rayonIdsScope);
       const { data: plannings, error } = await q;
       if (error) throw error;
       const ids = (plannings ?? []).map((p: any) => p.id);
+      const rayonIdParPlanning = new Map<string, string>(
+        (plannings ?? []).map((p: any) => [p.id, p.rayon_id])
+      );
       if (ids.length > 0) {
         const { data, error: errLignes } = await supabase
-          .from('planning_lignes').select('collaborateur_id, jour, poste').in('planning_id', ids);
+          .from('planning_lignes').select('planning_id, collaborateur_id, jour, poste').in('planning_id', ids);
         if (errLignes) throw errLignes;
-        (data ?? []).forEach((l: any) => lignes.push({ ...l, source: 'Planning Rayon' }));
+        (data ?? []).forEach((l: any) => lignes.push({
+          collaborateur_id: l.collaborateur_id,
+          jour: l.jour,
+          poste: l.poste,
+          source: 'Planning Rayon',
+          rayon_id: rayonIdParPlanning.get(l.planning_id),
+        }));
       }
     } catch (err) {
       console.error('[assistant] Erreur lecture planning rayon :', err);
@@ -151,6 +169,7 @@ async function fetchLignesSemaine(profile: Profile, semaineDebut: string): Promi
  * - Double affectation : un collaborateur avec un poste de travail sur 2 plannings différents le même jour
  *   (ne se déclenche que si le rôle a accès à plusieurs sources à la fois, ex: administrateur).
  * - Repos hebdomadaire : un collaborateur sans aucun jour "R" sur sa semaine (planning rayon, dans le périmètre du rôle).
+ * - Cohérence effectif/postes par rayon (voir Règle 3 ci-dessous).
  */
 export async function detecterAnomalies(profile: Profile, date: Date = new Date()): Promise<Anomalie[]> {
   const semaine = startOfWeek(date);
@@ -220,6 +239,107 @@ export async function detecterAnomalies(profile: Profile, date: Date = new Date(
         collaborateurNom: nomOf(collabId),
         message: `${nomOf(collabId)} a ${nbRepos} jours de repos (R) sur la semaine du ${semaineDebut} — au-delà du maximum de ${MAX_REPOS_PAR_SEMAINE}.`,
       });
+    }
+  }
+
+  // --- Règle 3 : cohérence effectif / répartition des postes, par rayon (planning rayon uniquement)
+  // Effectif = nombre de collaborateurs distincts ayant au moins une ligne dans le planning de la semaine, pour ce rayon.
+  //   - effectif 1 : tous les jours travaillés doivent être en poste "M" (Matin).
+  //   - effectif 2 : chaque jour où les 2 sont présents, la combinaison doit être M+S ou M+T (jamais 2x le même poste).
+  //   - effectif 3+ : répartition stricte des postes M et S/T entre les employés du rayon (écart max 1 jour).
+  const parRayon = new Map<string, LigneBrute[]>();
+  for (const l of lignesRayon) {
+    if (!l.rayon_id) continue;
+    if (!parRayon.has(l.rayon_id)) parRayon.set(l.rayon_id, []);
+    parRayon.get(l.rayon_id)!.push(l);
+  }
+
+  const rayonIdsConcernes = Array.from(parRayon.keys());
+  const { data: rayonsData } = await supabase
+    .from('rayons').select('id, nom').in('id', rayonIdsConcernes.length > 0 ? rayonIdsConcernes : ['__aucun__']);
+  const nomRayonMap = new Map<string, string>((rayonsData ?? []).map((r: any) => [r.id, r.nom]));
+  const nomRayon = (id: string) => nomRayonMap.get(id) ?? id;
+
+  for (const [rayonId, lignesDuRayon] of parRayon.entries()) {
+    const collabsDuRayon = Array.from(new Set(lignesDuRayon.map(l => l.collaborateur_id)));
+    const effectif = collabsDuRayon.length;
+    const nomR = nomRayon(rayonId);
+
+    if (effectif === 1) {
+      const collabId = collabsDuRayon[0];
+      const joursCollab = lignesDuRayon.filter(l => l.collaborateur_id === collabId);
+      for (const l of joursCollab) {
+        if (POSTES_TRAVAIL.has(l.poste) && l.poste !== POSTE_MATIN) {
+          anomalies.push({
+            id: `effectif1_${collabId}_${l.jour}`,
+            type: 'effectif1_hors_matin',
+            collaborateurId: collabId,
+            collaborateurNom: nomOf(collabId),
+            message: `${nomOf(collabId)} (rayon ${nomR}, effectif 1) est en poste "${l.poste}" le ${l.jour} — un rayon à 1 seul employé doit être planifié en Matin (M), avec 1 jour de repos hebdomadaire.`,
+          });
+        }
+      }
+    } else if (effectif === 2) {
+      const parJour = new Map<string, LigneBrute[]>();
+      for (const l of lignesDuRayon) {
+        if (!POSTES_TRAVAIL.has(l.poste)) continue;
+        if (!parJour.has(l.jour)) parJour.set(l.jour, []);
+        parJour.get(l.jour)!.push(l);
+      }
+      for (const [jour, group] of parJour.entries()) {
+        if (group.length < 2) continue; // un seul des deux présent ce jour-là (probablement l'autre en repos) : rien à vérifier
+        const postes = group.map(g => g.poste).sort();
+        const comboValide = postes.length === 2 && postes[0] === POSTE_MATIN && POSTES_SOIR_TRANCHE.has(postes[1]);
+        if (!comboValide) {
+          const noms = group.map(g => nomOf(g.collaborateur_id)).join(' & ');
+          anomalies.push({
+            id: `effectif2_${rayonId}_${jour}`,
+            type: 'effectif2_couverture',
+            collaborateurId: group[0].collaborateur_id,
+            collaborateurNom: noms,
+            message: `Rayon ${nomR} (effectif 2) le ${jour} : combinaison de postes "${postes.join('+')}" invalide — attendu M+S ou M+T (un Matin et un Soir/Tranche), jamais le même poste pour les deux.`,
+          });
+        }
+      }
+    } else if (effectif >= 3) {
+      // On exige la semaine complète (7 jours renseignés) pour chaque collaborateur du rayon, sinon comparaison faussée.
+      const semaineComplete = collabsDuRayon.every(cId => {
+        const jrs = new Set(lignesDuRayon.filter(l => l.collaborateur_id === cId).map(l => l.jour));
+        return jours.every(j => jrs.has(j));
+      });
+      if (!semaineComplete) continue;
+
+      const compterParType = (predicat: (poste: string) => boolean) => {
+        const counts = new Map<string, number>();
+        for (const cId of collabsDuRayon) {
+          const n = lignesDuRayon.filter(l => l.collaborateur_id === cId && predicat(l.poste)).length;
+          counts.set(cId, n);
+        }
+        return counts;
+      };
+
+      const typesAVerifier: Array<{ code: 'M' | 'S/T'; predicat: (poste: string) => boolean }> = [
+        { code: 'M', predicat: p => p === POSTE_MATIN },
+        { code: 'S/T', predicat: p => POSTES_SOIR_TRANCHE.has(p) },
+      ];
+
+      for (const { code, predicat } of typesAVerifier) {
+        const counts = compterParType(predicat);
+        const valeurs = Array.from(counts.values());
+        const max = Math.max(...valeurs);
+        const min = Math.min(...valeurs);
+        if (max - min > 1) {
+          const detail = collabsDuRayon.map(cId => `${nomOf(cId)}: ${counts.get(cId)}`).join(', ');
+          anomalies.push({
+            id: `effectif3_${rayonId}_${code.replace('/', '')}`,
+            type: 'effectif3_repartition',
+            collaborateurId: collabsDuRayon[0],
+            collaborateurNom: nomR,
+            message: `Rayon ${nomR} (effectif ${effectif}) : répartition des postes "${code === 'M' ? 'Matin' : 'Soir/Tranche'}" déséquilibrée entre employés (écart de ${max - min} jours) — ${detail}.`,
+            detail,
+          });
+        }
+      }
     }
   }
 
