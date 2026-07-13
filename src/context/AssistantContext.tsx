@@ -26,7 +26,7 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
   const { profile } = useAuth();
   const [anomalies, setAnomalies] = useState<Anomalie[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { id: 'welcome', role: 'assistant', text: "Bonjour 👋 Je surveille automatiquement les plannings (double affectation, repos hebdomadaire) dans la limite de ce que vous pouvez consulter. Tapez \"vérifie\" à tout moment pour lancer un contrôle." },
+    { id: 'welcome', role: 'assistant', text: "Bonjour 👋 Je surveille automatiquement les plannings (double affectation, repos hebdomadaire, cohérence effectif/postes par rayon) dans la limite de ce que vous pouvez consulter. Tapez \"vérifie\" à tout moment pour lancer un contrôle." },
   ]);
   const [checking, setChecking] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -80,7 +80,7 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
     if (t.includes('vérifi') || t.includes('verifi') || t.includes('check')) {
       void runCheck();
     } else {
-      pushMessage({ role: 'assistant', text: "Je peux surveiller : double affectation et repos hebdomadaire manquant. Tapez \"vérifie\" pour lancer un contrôle sur la semaine en cours." });
+      pushMessage({ role: 'assistant', text: "Je peux surveiller : double affectation, repos hebdomadaire manquant, et la cohérence effectif/postes par rayon (effectif 1 → Matin uniquement, effectif 2 → M+S ou M+T chaque jour, effectif 3+ → répartition équilibrée des postes). Tapez \"vérifie\" pour lancer un contrôle sur la semaine en cours." });
     }
   }, [runCheck, pushMessage]);
 
