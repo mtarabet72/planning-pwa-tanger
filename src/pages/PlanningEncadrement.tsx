@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Save, Loader2, Printer, FileText, Users2, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useAssistant } from '../context/AssistantContext';
 import { canAccessAdmin } from '../types';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
@@ -99,6 +100,7 @@ type Grille = Record<string, Record<string, Poste>>;
 
 export default function PlanningEncadrement() {
   const { profile } = useAuth();
+  const { runCheck } = useAssistant();
   const isAdmin = profile ? canAccessAdmin(profile.role) : false;
   const isChefDep = profile?.role === 'chef_departement';
 
@@ -252,6 +254,7 @@ export default function PlanningEncadrement() {
 
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+      void runCheck(semaine);
     } catch (err: any) {
       console.error('[DEBUG planning encadrement] Erreur sauvegarde :', err);
       alert(`Erreur lors de la sauvegarde du planning :\n${err?.message ?? err}`);
