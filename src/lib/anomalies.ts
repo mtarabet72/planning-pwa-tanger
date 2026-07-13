@@ -5,8 +5,9 @@ import type { Profile } from '../types';
 // R = Repos, C = Congé, MAL = Maladie, AT = Accident Travail ne sont PAS des postes de travail.
 const POSTES_TRAVAIL = new Set(['M', 'T', 'S', 'HN', 'FOR']);
 const POSTE_REPOS = 'R';
+const MAX_REPOS_PAR_SEMAINE = 1; // au-delà, anomalie "trop de repos"
 
-export type AnomalieType = 'double_affectation' | 'repos_hebdo';
+export type AnomalieType = 'double_affectation' | 'repos_hebdo' | 'trop_repos';
 
 export interface Anomalie {
   id: string;
@@ -196,18 +197,28 @@ export async function detecterAnomalies(profile: Profile, date: Date = new Date(
   const collabsRayon = Array.from(new Set(lignesRayon.map(l => l.collaborateur_id)));
   for (const collabId of collabsRayon) {
     const joursCollab = lignesRayon.filter(l => l.collaborateur_id === collabId);
-    // On exige que les 7 jours de la semaine soient renseignés pour juger valablement de l'absence de repos
+    // On exige que les 7 jours de la semaine soient renseignés pour juger valablement de l'absence/excès de repos
     const joursRenseignes = new Set(joursCollab.map(l => l.jour));
     const semaineComplete = jours.every(j => joursRenseignes.has(j));
     if (!semaineComplete) continue;
-    const aUnRepos = joursCollab.some(l => l.poste === POSTE_REPOS);
-    if (!aUnRepos) {
+
+    const nbRepos = joursCollab.filter(l => l.poste === POSTE_REPOS).length;
+
+    if (nbRepos === 0) {
       anomalies.push({
         id: `repos_${collabId}_${semaineDebut}`,
         type: 'repos_hebdo',
         collaborateurId: collabId,
         collaborateurNom: nomOf(collabId),
         message: `${nomOf(collabId)} n'a aucun jour de repos (R) sur la semaine du ${semaineDebut}.`,
+      });
+    } else if (nbRepos > MAX_REPOS_PAR_SEMAINE) {
+      anomalies.push({
+        id: `trop_repos_${collabId}_${semaineDebut}`,
+        type: 'trop_repos',
+        collaborateurId: collabId,
+        collaborateurNom: nomOf(collabId),
+        message: `${nomOf(collabId)} a ${nbRepos} jours de repos (R) sur la semaine du ${semaineDebut} — au-delà du maximum de ${MAX_REPOS_PAR_SEMAINE}.`,
       });
     }
   }
