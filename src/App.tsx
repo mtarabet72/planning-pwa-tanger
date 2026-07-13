@@ -22,6 +22,11 @@ import { useNotifications } from './hooks/useNotifications';
 import { AssistantProvider } from './context/AssistantContext';
 import AssistantWidget from './components/AssistantWidget';
 
+function formatSemaineCourte(iso: string): string {
+  const [yyyy, mm, dd] = iso.split('-');
+  return `${dd}/${mm}/${yyyy}`;
+}
+
 function FullScreenMessage({ title, body, onSignOut }: { title: string; body: string; onSignOut: () => void }) {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
@@ -45,7 +50,7 @@ function AppShell() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showMore, setShowMore] = useState(false);
 
-  const { rayonsSansPlanning, count: notifCount } = useNotifications(profile);
+  const { rayonsSansPlanning, planningsAttenteDept, planningsAttenteAdmin, count: notifCount } = useNotifications(profile);
 
   if (!profile) return null;
 
@@ -165,36 +170,87 @@ function AppShell() {
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
               <div className="flex items-center gap-2">
                 <Bell className="w-4 h-4 text-gray-600" />
-                <span className="font-semibold text-sm">Rayons sans planning</span>
+                <span className="font-semibold text-sm">Notifications</span>
               </div>
               <button onClick={() => setShowNotifications(false)} className="p-1 hover:bg-gray-100 rounded-lg">
                 <X className="w-4 h-4" />
               </button>
             </div>
-            {rayonsSansPlanning.length === 0 ? (
+
+            {notifCount === 0 ? (
               <div className="p-6 text-center">
                 <div className="text-2xl mb-2">✅</div>
-                <p className="text-sm text-gray-500">Tous les rayons sont planifiés cette semaine.</p>
+                <p className="text-sm text-gray-500">Rien à signaler pour le moment.</p>
               </div>
             ) : (
-              <div className="max-h-80 overflow-y-auto divide-y divide-gray-50">
-                {rayonsSansPlanning.map(r => (
-                  <div key={r.id} className="px-4 py-3 hover:bg-gray-50">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium text-sm text-gray-900">{r.nom}</p>
-                        <p className="text-xs text-gray-400">{r.depNom} · {r.nb_collaborateurs} collab.</p>
-                      </div>
-                      <span className="text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded-full font-medium">En retard</span>
+              <div className="max-h-96 overflow-y-auto divide-y divide-gray-100">
+                {rayonsSansPlanning.length > 0 && (
+                  <div>
+                    <p className="px-4 pt-3 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wide">Rayons sans planning</p>
+                    <div className="divide-y divide-gray-50">
+                      {rayonsSansPlanning.map(r => (
+                        <div key={r.id} className="px-4 py-3 hover:bg-gray-50">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="font-medium text-sm text-gray-900">{r.nom}</p>
+                              <p className="text-xs text-gray-400">{r.depNom} · {r.nb_collaborateurs} collab.</p>
+                            </div>
+                            <span className="text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded-full font-medium">En retard</span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                ))}
+                )}
+
+                {planningsAttenteDept.length > 0 && (
+                  <div>
+                    <p className="px-4 pt-3 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wide">En attente de votre validation</p>
+                    <div className="divide-y divide-gray-50">
+                      {planningsAttenteDept.map(p => (
+                        <div key={p.id} className="px-4 py-3 hover:bg-gray-50">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="font-medium text-sm text-gray-900">{p.rayonNom}</p>
+                              <p className="text-xs text-gray-400">{p.depNom} · Semaine du {formatSemaineCourte(p.semaineDebut)}</p>
+                            </div>
+                            <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full font-medium">À valider</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {planningsAttenteAdmin.length > 0 && (
+                  <div>
+                    <p className="px-4 pt-3 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wide">En attente de validation admin</p>
+                    <div className="divide-y divide-gray-50">
+                      {planningsAttenteAdmin.map(p => (
+                        <div key={p.id} className="px-4 py-3 hover:bg-gray-50">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="font-medium text-sm text-gray-900">{p.type === 'rayon' ? p.rayonNom : `Encadrement — ${p.depNom}`}</p>
+                              <p className="text-xs text-gray-400">
+                                {p.type === 'rayon' ? `${p.depNom} · ` : ''}Semaine du {formatSemaineCourte(p.semaineDebut)}
+                              </p>
+                            </div>
+                            <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-medium">À valider</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
-            {rayonsSansPlanning.length > 0 && (
+
+            {notifCount > 0 && (
               <div className="px-4 py-3 border-t border-gray-100 bg-gray-50">
-                <button onClick={() => handleNav('planning')} className="w-full text-sm text-blue-600 font-medium text-center hover:text-blue-700">
-                  Aller au Planning →
+                <button
+                  onClick={() => handleNav(rayonsSansPlanning.length > 0 && planningsAttenteDept.length === 0 && planningsAttenteAdmin.length === 0 ? 'planning' : 'validation')}
+                  className="w-full text-sm text-blue-600 font-medium text-center hover:text-blue-700">
+                  {planningsAttenteDept.length > 0 || planningsAttenteAdmin.length > 0 ? 'Aller à Validation →' : 'Aller au Planning →'}
                 </button>
               </div>
             )}
