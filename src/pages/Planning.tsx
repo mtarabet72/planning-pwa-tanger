@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Save, Loader2, Plus, Printer, FileText, Send, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useAssistant } from '../context/AssistantContext';
 import { canAccessAdmin } from '../types';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
@@ -107,6 +108,7 @@ type Grille = Record<string, Record<string, Poste>>;
 
 export default function Planning() {
   const { profile } = useAuth();
+  const { runCheck } = useAssistant();
   const isAdmin = profile ? canAccessAdmin(profile.role) : false;
   const isChefDep = profile?.role === 'chef_departement';
   const isChefRayon = profile?.role === 'chef_rayon';
@@ -271,6 +273,7 @@ export default function Planning() {
       if (errUpsertLignes) throw errUpsertLignes;
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+      void runCheck(semaine);
     } catch (err: any) {
       console.error('[DEBUG planning] Erreur sauvegarde :', err);
       alert(`Erreur lors de la sauvegarde du planning :\n${err?.message ?? err}`);
