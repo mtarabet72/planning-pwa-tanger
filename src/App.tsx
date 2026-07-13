@@ -19,6 +19,8 @@ import PlanningDirection from './pages/PlanningDirection';
 import Reinitialisation from './pages/Reinitialisation';
 import { ROLE_LABELS, canAccessAdmin } from './types';
 import { useNotifications } from './hooks/useNotifications';
+import { AssistantProvider } from './context/AssistantContext';
+import AssistantWidget from './components/AssistantWidget';
 
 function FullScreenMessage({ title, body, onSignOut }: { title: string; body: string; onSignOut: () => void }) {
   return (
@@ -408,6 +410,8 @@ function AppShell() {
           </button>
         </div>
       </div>
+
+      <AssistantWidget />
     </div>
   );
 }
@@ -445,7 +449,11 @@ function App() {
     );
   }
 
-  return <AppShell />;
+  return (
+    <AssistantProvider>
+      <AppShell />
+    </AssistantProvider>
+  );
 }
 
 export default App;
