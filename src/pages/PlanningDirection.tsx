@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Save, Loader2, Printer, FileText, Shield, Crown, Search, Plus, X, Settings, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useAssistant } from '../context/AssistantContext';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 
@@ -102,6 +103,7 @@ type Grille = Record<string, Record<string, Poste>>;
 
 export default function PlanningDirection() {
   const { profile } = useAuth();
+  const { runCheck } = useAssistant();
   const [activeTab, setActiveTab] = useState<TabType>('permanence');
   const [semaine, setSemaine] = useState<Date>(getLundi(new Date()));
   const jours = Array.from({ length: 7 }, (_, i) => addDays(semaine, i));
@@ -296,20 +298,28 @@ export default function PlanningDirection() {
 
   async function handleSavePermanence() {
     setPermSaving(true);
-    const pid = await ensurePermPlanning();
-    if (!pid) { setPermSaving(false); return; }
-    const lignes = [];
-    for (const [colId, jmap] of Object.entries(permGrille)) {
-      for (const [jour, poste] of Object.entries(jmap)) {
-        lignes.push({ planning_id: pid, collaborateur_id: colId, jour, poste });
+    try {
+      const pid = await ensurePermPlanning();
+      if (!pid) { setPermSaving(false); return; }
+      const lignes = [];
+      for (const [colId, jmap] of Object.entries(permGrille)) {
+        for (const [jour, poste] of Object.entries(jmap)) {
+          lignes.push({ planning_id: pid, collaborateur_id: colId, jour, poste });
+        }
       }
+      if (lignes.length) {
+        const { error } = await supabase.from('permanence_lignes').upsert(lignes, { onConflict: 'planning_id,collaborateur_id,jour' });
+        if (error) throw error;
+      }
+      setPermSaved(true);
+      setTimeout(() => setPermSaved(false), 2000);
+      void runCheck(semaine);
+    } catch (err: any) {
+      console.error('[DEBUG permanence] Erreur sauvegarde :', err);
+      alert(`Erreur lors de la sauvegarde de la permanence :\n${err?.message ?? err}`);
+    } finally {
+      setPermSaving(false);
     }
-    if (lignes.length) {
-      await supabase.from('permanence_lignes').upsert(lignes, { onConflict: 'planning_id,collaborateur_id,jour' });
-    }
-    setPermSaving(false);
-    setPermSaved(true);
-    setTimeout(() => setPermSaved(false), 2000);
   }
 
   // ===== DIRECTION (Chefs de Département) =====
@@ -367,26 +377,35 @@ export default function PlanningDirection() {
 
   async function handleSaveDirection() {
     setDirSaving(true);
-    const debut = formatDate(semaine);
-    const { data } = await supabase
-      .from('plannings_permanence')
-      .upsert({ semaine_debut: debut, type: 'direction', created_by: profile?.id }, { onConflict: 'semaine_debut,type' })
-      .select('id').single();
-    const pid = data?.id ?? null;
-    if (!pid) { setDirSaving(false); return; }
+    try {
+      const debut = formatDate(semaine);
+      const { data, error: errPlanning } = await supabase
+        .from('plannings_permanence')
+        .upsert({ semaine_debut: debut, type: 'direction', created_by: profile?.id }, { onConflict: 'semaine_debut,type' })
+        .select('id').single();
+      if (errPlanning) throw errPlanning;
+      const pid = data?.id ?? null;
+      if (!pid) { setDirSaving(false); return; }
 
-    const lignes = [];
-    for (const [colId, jmap] of Object.entries(dirGrille)) {
-      for (const [jour, poste] of Object.entries(jmap)) {
-        lignes.push({ planning_id: pid, collaborateur_id: colId, jour, poste });
+      const lignes = [];
+      for (const [colId, jmap] of Object.entries(dirGrille)) {
+        for (const [jour, poste] of Object.entries(jmap)) {
+          lignes.push({ planning_id: pid, collaborateur_id: colId, jour, poste });
+        }
       }
+      if (lignes.length) {
+        const { error: errLignes } = await supabase.from('permanence_lignes').upsert(lignes, { onConflict: 'planning_id,collaborateur_id,jour' });
+        if (errLignes) throw errLignes;
+      }
+      setDirSaved(true);
+      setTimeout(() => setDirSaved(false), 2000);
+      void runCheck(semaine);
+    } catch (err: any) {
+      console.error('[DEBUG direction] Erreur sauvegarde :', err);
+      alert(`Erreur lors de la sauvegarde du planning direction :\n${err?.message ?? err}`);
+    } finally {
+      setDirSaving(false);
     }
-    if (lignes.length) {
-      await supabase.from('permanence_lignes').upsert(lignes, { onConflict: 'planning_id,collaborateur_id,jour' });
-    }
-    setDirSaving(false);
-    setDirSaved(true);
-    setTimeout(() => setDirSaved(false), 2000);
   }
 
   // ===== Appui long (partagé) =====
