@@ -45,3 +45,7 @@ export function canAccessAdmin(role: Role): boolean {
 export function canConsolidateDepartement(role: Role): boolean {
   return role === 'administrateur' || role === 'chef_departement';
 }
+/** Onglets de navigation principaux de l'application. */
+export type Tab =
+  | 'dashboard' | 'planning' | 'encadrement' | 'direction' | 'validation'
+  | 'historique' | 'consolidation' | 'admin' | 'reports' | 'profil';
