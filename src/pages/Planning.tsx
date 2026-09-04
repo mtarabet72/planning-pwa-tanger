@@ -263,6 +263,7 @@ export default function Planning() {
         setPlanningStatut('brouillon');
       }
       if (!pid) { setSaving(false); return; }
+      // Retire les lignes des collaborateurs absents de la grille avant d'écraser le reste (cf. lib/planningLignes)
       await purgerLignesOrphelines('planning_lignes', pid, Object.keys(grille));
       const lignes = [];
       for (const [colId, jours_map] of Object.entries(grille)) {
