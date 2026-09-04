@@ -8,6 +8,9 @@ interface AuthContextValue {
   profile: Profile | null;
   loading: boolean;
   profileIncomplete: boolean;
+  /** true lorsque l'utilisateur arrive via un lien "mot de passe oublié" et doit en définir un nouveau. */
+  recoveryMode: boolean;
+  setRecoveryMode: (v: boolean) => void;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -29,6 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [recoveryMode, setRecoveryMode] = useState(false);
 
   async function loadProfile(userId: string) {
     const p = await fetchProfile(userId);
@@ -36,30 +40,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    let active = true;
-
-    supabase.auth.getSession().then(async ({ data }) => {
-      if (!active) return;
-      setSession(data.session);
-      if (data.session?.user) {
-        await loadProfile(data.session.user.id);
-      }
-      setLoading(false);
-    });
-
+    // Un seul point d'entrée : onAuthStateChange émet INITIAL_SESSION au démarrage
+    // (session existante ou null), ce qui évite le double chargement du profil
+    // qu'entraînait l'appel parallèle à getSession().
     const { data: listener } = supabase.auth.onAuthStateChange(
-      async (_event, newSession) => {
+      async (event, newSession) => {
+        if (event === 'PASSWORD_RECOVERY') setRecoveryMode(true);
         setSession(newSession);
         if (newSession?.user) {
-          await loadProfile(newSession.user.id);
+          // Le rafraîchissement du jeton ne change pas le profil : inutile de le recharger.
+          if (event !== 'TOKEN_REFRESHED') await loadProfile(newSession.user.id);
         } else {
           setProfile(null);
+          setRecoveryMode(false);
         }
+        if (event === 'INITIAL_SESSION') setLoading(false);
       }
     );
 
     return () => {
-      active = false;
       listener.subscription.unsubscribe();
     };
   }, []);
@@ -73,6 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function signOut() {
     await supabase.auth.signOut();
     setProfile(null);
+    setRecoveryMode(false);
   }
 
   async function refreshProfile() {
@@ -84,6 +84,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     profile,
     loading,
     profileIncomplete: !!session && !loading && !profile,
+    recoveryMode,
+    setRecoveryMode,
     signIn,
     signOut,
     refreshProfile,
