@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Save, Loader2, Printer, FileText, Shield, Crown, Search, Plus, X, Settings, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { purgerLignesOrphelines } from '../lib/planningLignes';
 import { useAuth } from '../context/AuthContext';
 import { useAssistant } from '../context/AssistantContext';
 import jsPDF from 'jspdf';
@@ -301,6 +302,8 @@ export default function PlanningDirection() {
     try {
       const pid = await ensurePermPlanning();
       if (!pid) { setPermSaving(false); return; }
+      // Retire les lignes des collaborateurs absents de la grille avant d'écraser le reste (cf. lib/planningLignes)
+      await purgerLignesOrphelines('permanence_lignes', pid, Object.keys(permGrille));
       const lignes = [];
       for (const [colId, jmap] of Object.entries(permGrille)) {
         for (const [jour, poste] of Object.entries(jmap)) {
@@ -387,6 +390,8 @@ export default function PlanningDirection() {
       const pid = data?.id ?? null;
       if (!pid) { setDirSaving(false); return; }
 
+      // Retire les lignes des collaborateurs absents de la grille avant d'écraser le reste (cf. lib/planningLignes)
+      await purgerLignesOrphelines('permanence_lignes', pid, Object.keys(dirGrille));
       const lignes = [];
       for (const [colId, jmap] of Object.entries(dirGrille)) {
         for (const [jour, poste] of Object.entries(jmap)) {
