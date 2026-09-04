@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Save, Loader2, Plus, Printer, FileText, Send, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { purgerLignesOrphelines } from '../lib/planningLignes';
 import { useAuth } from '../context/AuthContext';
 import { useAssistant } from '../context/AssistantContext';
 import { canAccessAdmin } from '../types';
@@ -262,6 +263,7 @@ export default function Planning() {
         setPlanningStatut('brouillon');
       }
       if (!pid) { setSaving(false); return; }
+      await purgerLignesOrphelines('planning_lignes', pid, Object.keys(grille));
       const lignes = [];
       for (const [colId, jours_map] of Object.entries(grille)) {
         for (const [jour, poste] of Object.entries(jours_map)) {
