@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Save, Loader2, Printer, FileText, Users2, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Save, Loader2, Printer, FileText, Users2, X, Send } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { purgerLignesOrphelines } from '../lib/planningLignes';
 import { useAuth } from '../context/AuthContext';
@@ -10,6 +10,7 @@ import * as XLSX from 'xlsx';
 
 type Poste = 'M' | 'T' | 'S' | 'R' | 'C' | 'HN' | 'MAL' | 'AT' | 'FOR';
 type Fonction = 'employe' | 'chef_rayon' | 'assistante' | 'chef_departement';
+type StatutEnc = 'brouillon' | 'soumis' | 'valide' | 'rejete';
 
 const POSTES_CYCLE: Poste[] = ['M', 'T', 'S', 'R', 'C'];
 const POSTES_SPECIAUX: Poste[] = ['HN', 'MAL', 'AT', 'FOR'];
@@ -112,7 +113,10 @@ export default function PlanningEncadrement() {
   const [collaborateurs, setCollaborateurs] = useState<Collaborateur[]>([]);
   const [grille, setGrille] = useState<Grille>({});
   const [planningId, setPlanningId] = useState<string | null>(null);
+  const [planningStatut, setPlanningStatut] = useState<StatutEnc>('brouillon');
+  const [planningCommentaire, setPlanningCommentaire] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -122,6 +126,8 @@ export default function PlanningEncadrement() {
 
   const jours = Array.from({ length: 7 }, (_, i) => addDays(semaine, i));
   const numSemaine = getNumeroSemaine(semaine);
+  // Une fois soumis à l'admin ou validé, le planning n'est plus modifiable ici
+  const readOnly = planningStatut === 'soumis' || planningStatut === 'valide';
 
   useEffect(() => { init(); }, []);
   useEffect(() => { if (departementId) loadPlanning(); }, [departementId, semaine]);
@@ -151,6 +157,8 @@ export default function PlanningEncadrement() {
     setLoading(true);
     setGrille({});
     setPlanningId(null);
+    setPlanningStatut('brouillon');
+    setPlanningCommentaire(null);
 
     const { data: cols } = await supabase
       .from('collaborateurs')
@@ -169,11 +177,13 @@ export default function PlanningEncadrement() {
 
     const debut = formatDate(semaine);
     const { data: plan } = await supabase
-      .from('plannings_encadrement').select('id')
+      .from('plannings_encadrement').select('id, statut, commentaire')
       .eq('departement_id', departementId).eq('semaine_debut', debut).single();
 
     if (plan) {
       setPlanningId(plan.id);
+      setPlanningStatut((plan.statut as StatutEnc) ?? 'brouillon');
+      setPlanningCommentaire(plan.commentaire ?? null);
       const { data: lignes } = await supabase
         .from('planning_encadrement_lignes').select('*').eq('planning_id', plan.id);
       const g: Grille = {};
@@ -194,11 +204,13 @@ export default function PlanningEncadrement() {
   }
 
   function setPoste(colId: string, jour: string, poste: Poste) {
+    if (readOnly) return;
     setGrille(prev => ({ ...prev, [colId]: { ...prev[colId], [jour]: poste } }));
     setSaved(false);
   }
 
   function cyclePoste(colId: string, jour: string) {
+    if (readOnly) return;
     setGrille(prev => {
       const current: Poste = prev[colId]?.[jour] ?? 'R';
       const idxInCycle = POSTES_CYCLE.indexOf(current);
@@ -209,6 +221,7 @@ export default function PlanningEncadrement() {
   }
 
   function handlePressStart(colId: string, jour: string) {
+    if (readOnly) return;
     longPressTriggered.current = false;
     longPressTimer.current = setTimeout(() => {
       longPressTriggered.current = true;
@@ -226,6 +239,7 @@ export default function PlanningEncadrement() {
   }
 
   async function handleSave() {
+    if (readOnly) return;
     setSaving(true);
     try {
       const debut = formatDate(semaine);
@@ -239,6 +253,7 @@ export default function PlanningEncadrement() {
         if (errUpsertPlanning) throw errUpsertPlanning;
         pid = data?.id ?? null;
         setPlanningId(pid);
+        setPlanningStatut('brouillon');
       }
 
       if (!pid) { setSaving(false); return; }
@@ -263,6 +278,41 @@ export default function PlanningEncadrement() {
       alert(`Erreur lors de la sauvegarde du planning :\n${err?.message ?? err}`);
     } finally {
       setSaving(false);
+    }
+  }
+
+  /** Soumet le planning d'encadrement à l'administrateur pour validation finale. */
+  async function handleSoumettre() {
+    if (!planningId) return;
+    setSubmitting(true);
+    try {
+      const { error } = await supabase.from('plannings_encadrement')
+        .update({ statut: 'soumis', commentaire: null }).eq('id', planningId);
+      if (error) throw error;
+      setPlanningStatut('soumis');
+      setPlanningCommentaire(null);
+    } catch (err: any) {
+      console.error('[DEBUG planning encadrement] Erreur soumission :', err);
+      alert(`Erreur lors de la soumission :\n${err?.message ?? err}`);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleReprendreEnBrouillon() {
+    if (!planningId) return;
+    setSubmitting(true);
+    try {
+      const { error } = await supabase.from('plannings_encadrement')
+        .update({ statut: 'brouillon', commentaire: null }).eq('id', planningId);
+      if (error) throw error;
+      setPlanningStatut('brouillon');
+      setPlanningCommentaire(null);
+    } catch (err: any) {
+      console.error('[DEBUG planning encadrement] Erreur reprise :', err);
+      alert(`Erreur :\n${err?.message ?? err}`);
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -375,11 +425,26 @@ export default function PlanningEncadrement() {
 
         {collaborateurs.length > 0 && (
           <div className="flex gap-2 flex-wrap">
-            <button onClick={handleSave} disabled={saving}
-              className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-purple-700 disabled:opacity-60 transition">
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              {saved ? 'Sauvegardé ✓' : 'Sauvegarder'}
-            </button>
+            {!readOnly && (
+              <button onClick={handleSave} disabled={saving}
+                className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-purple-700 disabled:opacity-60 transition">
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {saved ? 'Sauvegardé ✓' : 'Sauvegarder'}
+              </button>
+            )}
+            {planningId && planningStatut === 'brouillon' && (
+              <button onClick={handleSoumettre} disabled={submitting}
+                className="flex items-center gap-2 bg-amber-500 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-amber-600 disabled:opacity-60 transition">
+                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                Soumettre à l'Admin
+              </button>
+            )}
+            {planningId && planningStatut === 'rejete' && (
+              <button onClick={handleReprendreEnBrouillon} disabled={submitting}
+                className="flex items-center gap-2 bg-gray-500 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-600 disabled:opacity-60 transition">
+                Reprendre
+              </button>
+            )}
             <button onClick={handleExportPDF}
               className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-emerald-700 transition">
               <Printer className="w-4 h-4" /> PDF
@@ -391,6 +456,25 @@ export default function PlanningEncadrement() {
           </div>
         )}
       </div>
+
+      {planningId && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`text-xs px-3 py-1.5 rounded-full font-medium ${
+            planningStatut === 'brouillon' ? 'bg-gray-100 text-gray-600' :
+            planningStatut === 'soumis' ? 'bg-amber-100 text-amber-700' :
+            planningStatut === 'valide' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+          }`}>
+            {planningStatut === 'brouillon' ? 'Brouillon' :
+             planningStatut === 'soumis' ? "Soumis — en attente de validation de l'Admin" :
+             planningStatut === 'valide' ? 'Validé (Final) ✓' : 'Rejeté'}
+          </span>
+          {planningCommentaire && (
+            <span className="text-xs text-red-600 bg-red-50 px-3 py-1.5 rounded-full">
+              Motif : {planningCommentaire}
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="space-y-1.5">
         <div className="flex flex-wrap gap-1.5">
@@ -460,9 +544,10 @@ export default function PlanningEncadrement() {
                             onTouchEnd={() => handlePressEnd(c.id, dateStr)}
                             onTouchCancel={handlePressCancel}
                             onContextMenu={e => e.preventDefault()}
-                            className={`w-10 h-8 rounded-lg border font-bold transition select-none hover:opacity-80 ${
+                            disabled={readOnly}
+                            className={`w-10 h-8 rounded-lg border font-bold transition select-none ${
                               poste.length > 1 ? 'text-[9px]' : 'text-xs'
-                            } ${POSTE_STYLE[poste]}`}
+                            } ${POSTE_STYLE[poste]} ${readOnly ? 'cursor-default opacity-80' : 'hover:opacity-80'}`}
                           >
                             {poste}
                           </button>
