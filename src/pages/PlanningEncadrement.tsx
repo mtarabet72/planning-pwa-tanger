@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Save, Loader2, Printer, FileText, Users2, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { purgerLignesOrphelines } from '../lib/planningLignes';
 import { useAuth } from '../context/AuthContext';
 import { useAssistant } from '../context/AssistantContext';
 import { canAccessAdmin } from '../types';
@@ -242,6 +243,8 @@ export default function PlanningEncadrement() {
 
       if (!pid) { setSaving(false); return; }
 
+      // Retire les lignes des collaborateurs absents de la grille avant d'écraser le reste (cf. lib/planningLignes)
+      await purgerLignesOrphelines('planning_encadrement_lignes', pid, Object.keys(grille));
       const lignes = [];
       for (const [colId, jmap] of Object.entries(grille)) {
         for (const [jour, poste] of Object.entries(jmap)) {
