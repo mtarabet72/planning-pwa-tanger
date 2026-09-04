@@ -1,5 +1,6 @@
+
 import { useState, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Save, Loader2, Plus, Printer, FileText, Send, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Save, Loader2, Plus, Printer, FileText, Send, X, Copy } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { purgerLignesOrphelines } from '../lib/planningLignes';
 import { useAuth } from '../context/AuthContext';
@@ -127,6 +128,7 @@ export default function Planning() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [copying, setCopying] = useState(false);
 
   // Menu appui long
   const [posteMenu, setPosteMenu] = useState<{ colId: string; jour: string } | null>(null);
@@ -282,6 +284,45 @@ export default function Planning() {
       alert(`Erreur lors de la sauvegarde du planning :\n${err?.message ?? err}`);
     } finally {
       setSaving(false);
+    }
+  }
+
+  /** Recopie les postes de la semaine précédente (S-1) dans la grille courante, sans sauvegarder. */
+  async function handleCopierSemainePrecedente() {
+    if (readOnly || !rayonId) return;
+    if (planningId && !confirm('Remplacer la grille actuelle par celle de la semaine précédente ?\n(Rien n\'est enregistré tant que tu ne cliques pas sur Sauvegarder.)')) return;
+    setCopying(true);
+    try {
+      const prevDebut = formatDate(addDays(semaine, -7));
+      const { data: prevPlan, error: errPlan } = await supabase
+        .from('plannings').select('id')
+        .eq('rayon_id', rayonId).eq('semaine_debut', prevDebut).maybeSingle();
+      if (errPlan) throw errPlan;
+      if (!prevPlan) { alert('Aucun planning enregistré pour la semaine précédente.'); return; }
+
+      const { data: prevLignes, error: errLignes } = await supabase
+        .from('planning_lignes').select('collaborateur_id, jour, poste')
+        .eq('planning_id', prevPlan.id);
+      if (errLignes) throw errLignes;
+
+      const g: Grille = {};
+      // Tous les collaborateurs actuels partent en Repos, puis on applique S-1 décalée de 7 jours
+      for (const c of collaborateurs) {
+        g[c.id] = {};
+        for (const j of jours) g[c.id][formatDate(j)] = 'R';
+      }
+      for (const l of prevLignes ?? []) {
+        if (!g[l.collaborateur_id]) continue; // collaborateur parti ou désactivé depuis
+        const jourCible = formatDate(addDays(new Date(l.jour + 'T00:00:00'), 7));
+        if (jourCible in g[l.collaborateur_id]) g[l.collaborateur_id][jourCible] = l.poste as Poste;
+      }
+      setGrille(g);
+      setSaved(false);
+    } catch (err: any) {
+      console.error('[DEBUG planning] Erreur copie S-1 :', err);
+      alert(`Erreur lors de la copie :\n${err?.message ?? err}`);
+    } finally {
+      setCopying(false);
     }
   }
 
@@ -462,6 +503,13 @@ export default function Planning() {
                 className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition">
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 {saved ? '✓' : 'Sauv.'}
+              </button>
+            )}
+            {!readOnly && (
+              <button onClick={handleCopierSemainePrecedente} disabled={copying} title="Copier le planning de la semaine précédente"
+                className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-50 disabled:opacity-60 transition">
+                {copying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
+                <span className="hidden sm:inline">Copier S-1</span>
               </button>
             )}
             {(isChefRayon || isAdmin) && planningId && planningStatut === 'brouillon' && (
