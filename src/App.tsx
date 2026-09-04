@@ -17,7 +17,9 @@ import Historique from './pages/Historique';
 import PlanningEncadrement from './pages/PlanningEncadrement';
 import PlanningDirection from './pages/PlanningDirection';
 import Reinitialisation from './pages/Reinitialisation';
-import { ROLE_LABELS, canAccessAdmin } from './types';
+import NouveauMotDePasse from './pages/NouveauMotDePasse';
+import Sidebar from './components/Sidebar';
+import { canAccessAdmin, type Tab } from './types';
 import { useNotifications } from './hooks/useNotifications';
 import { AssistantProvider } from './context/AssistantContext';
 import AssistantWidget from './components/AssistantWidget';
@@ -43,7 +45,7 @@ function FullScreenMessage({ title, body, onSignOut }: { title: string; body: st
 
 function AppShell() {
   const { profile, signOut } = useAuth();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'planning' | 'encadrement' | 'direction' | 'validation' | 'historique' | 'consolidation' | 'admin' | 'reports' | 'profil'>('dashboard');
+  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [adminSection, setAdminSection] = useState<'menu' | 'collaborateurs' | 'utilisateurs' | 'rayons' | 'departements' | 'reinitialisation'>('menu');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -51,6 +53,8 @@ function AppShell() {
   const [showMore, setShowMore] = useState(false);
 
   const { rayonsSansPlanning, planningsAttenteDept, planningsAttenteAdmin, count: notifCount } = useNotifications(profile);
+  const nbSansPlanning = rayonsSansPlanning.length;
+  const nbAValider = planningsAttenteDept.length + planningsAttenteAdmin.length;
 
   if (!profile) return null;
 
@@ -58,17 +62,6 @@ function AppShell() {
   const isChefDep = profile.role === 'chef_departement';
   const fullName = `${profile.prenom} ${profile.nom}`.trim();
 
-  const menuItems = [
-    { id: 'dashboard', label: 'Tableau de Bord', icon: BarChart3 },
-    { id: 'planning', label: 'Planning', icon: Calendar },
-    { id: 'encadrement', label: 'Encadrement', icon: Users2, depOnly: true },
-    { id: 'direction', label: 'Permanence & Direction', icon: Crown, adminOnly: true },
-    { id: 'validation', label: 'Validation', icon: ClipboardCheck },
-    { id: 'historique', label: 'Historique', icon: History },
-    { id: 'consolidation', label: 'Consolidation', icon: LayoutGrid, depOnly: true },
-    { id: 'admin', label: 'Administration', icon: Users, adminOnly: true },
-    { id: 'reports', label: 'Rapports', icon: FileText },
-  ] as const;
 
   const bottomNav = [
     { id: 'dashboard', label: 'Accueil', icon: BarChart3 },
@@ -106,57 +99,6 @@ function AppShell() {
     reports: 'Rapports',
     profil: 'Mon Profil',
   };
-
-  const Sidebar = () => (
-    <div className="flex flex-col h-full">
-      <div className="p-6 flex-1">
-        <div className="flex items-center gap-3 mb-10">
-          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-bold text-xl">P</div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">Planning</h1>
-            <p className="text-xs text-gray-500">Marjane Tanger</p>
-          </div>
-        </div>
-        <nav className="space-y-1">
-          {menuItems.map((item) => {
-            if ('adminOnly' in item && item.adminOnly && !isAdmin) return null;
-            if ('depOnly' in item && item.depOnly && !isAdmin && !isChefDep) return null;
-            const Icon = item.icon;
-            return (
-              <button key={item.id} onClick={() => handleNav(item.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all ${activeTab === item.id ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-gray-100 text-gray-700'}`}>
-                <Icon className="w-5 h-5 shrink-0" />
-                <span className="flex-1">{item.label}</span>
-                {item.id === 'planning' && notifCount > 0 && (
-                  <span className="w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold shrink-0">
-                    {notifCount > 9 ? '9+' : notifCount}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </nav>
-      </div>
-      <div className="p-6">
-        <div className="bg-gray-50 p-4 rounded-2xl">
-          <button onClick={() => handleNav('profil')}
-            className={`w-full flex items-center gap-3 mb-3 p-2 rounded-xl transition ${activeTab === 'profil' ? 'bg-blue-50' : 'hover:bg-gray-100'}`}>
-            <div className="w-9 h-9 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600 shrink-0">
-              <User className="w-4 h-4" />
-            </div>
-            <div className="flex-1 min-w-0 text-left">
-              <p className="font-medium text-sm truncate">{fullName || 'Utilisateur'}</p>
-              <p className="text-xs text-gray-500">{ROLE_LABELS[profile.role]}</p>
-            </div>
-          </button>
-          <button onClick={() => void signOut()}
-            className="w-full flex items-center justify-center gap-2 text-red-600 hover:bg-red-50 py-2 rounded-xl text-sm font-medium">
-            <LogOut className="w-4 h-4" /> Déconnexion
-          </button>
-        </div>
-      </div>
-    </div>
-  );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -318,7 +260,7 @@ function AppShell() {
       )}
 
       <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:w-72 lg:flex lg:flex-col bg-white border-r border-gray-200 shadow-xl z-40">
-        <Sidebar />
+        <Sidebar activeTab={activeTab} onNav={handleNav} onSignOut={() => void signOut()} isAdmin={isAdmin} isChefDep={isChefDep} fullName={fullName} role={profile.role} planningBadge={nbSansPlanning} validationBadge={nbAValider} />
       </div>
 
       {sidebarOpen && (
@@ -328,7 +270,7 @@ function AppShell() {
             <button onClick={() => setSidebarOpen(false)} className="absolute top-4 right-4 p-2 rounded-xl hover:bg-gray-100">
               <X className="w-5 h-5" />
             </button>
-            <Sidebar />
+            <Sidebar activeTab={activeTab} onNav={handleNav} onSignOut={() => void signOut()} isAdmin={isAdmin} isChefDep={isChefDep} fullName={fullName} role={profile.role} planningBadge={nbSansPlanning} validationBadge={nbAValider} />
           </div>
         </div>
       )}
@@ -372,12 +314,12 @@ function AppShell() {
             </button>
           </header>
 
-          {notifCount > 0 && (activeTab === 'dashboard' || activeTab === 'planning') && (
+          {nbSansPlanning > 0 && (activeTab === 'dashboard' || activeTab === 'planning') && (
             <div className="mb-4 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-amber-600">⚠️</span>
                 <span className="text-sm text-amber-800 font-medium">
-                  {notifCount} rayon{notifCount > 1 ? 's' : ''} sans planning
+                  {nbSansPlanning} rayon{nbSansPlanning > 1 ? 's' : ''} sans planning
                 </span>
               </div>
               <button onClick={() => setShowNotifications(true)} className="text-xs text-amber-700 font-medium hover:text-amber-900">Voir →</button>
@@ -445,14 +387,15 @@ function AppShell() {
           {bottomNav.map(item => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
+            const badge = item.id === 'planning' ? nbSansPlanning : item.id === 'validation' ? nbAValider : 0;
             return (
               <button key={item.id} onClick={() => handleNav(item.id)}
                 className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 transition-colors relative ${isActive ? 'text-blue-600' : 'text-gray-400'}`}>
                 <Icon className="w-5 h-5" />
                 <span className="text-xs font-medium">{item.label}</span>
-                {item.id === 'planning' && notifCount > 0 && (
+                {badge > 0 && (
                   <span className="absolute top-1.5 right-4 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
-                    {notifCount > 9 ? '9+' : notifCount}
+                    {badge > 9 ? '9+' : badge}
                   </span>
                 )}
                 {isActive && <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-blue-600 rounded-full" />}
@@ -473,7 +416,7 @@ function AppShell() {
 }
 
 function App() {
-  const { session, profile, loading, profileIncomplete, signOut } = useAuth();
+  const { session, profile, loading, profileIncomplete, recoveryMode, signOut } = useAuth();
 
   if (loading) {
     return (
@@ -484,6 +427,8 @@ function App() {
   }
 
   if (!session) return <Login />;
+
+  if (recoveryMode) return <NouveauMotDePasse />;
 
   if (profileIncomplete) {
     return (
