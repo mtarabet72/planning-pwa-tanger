@@ -16,6 +16,16 @@ export interface PlanningAttenteDept {
   semaineDebut: string;
 }
 
+/** Planning renvoyé au chef avec un motif : à corriger puis re-soumettre. */
+export interface PlanningRejete {
+  id: string;
+  type: 'rayon' | 'encadrement';
+  rayonNom: string | null;
+  depNom: string;
+  semaineDebut: string;
+  commentaire: string;
+}
+
 export interface PlanningAttenteAdmin {
   id: string;
   type: 'rayon' | 'encadrement';
@@ -39,6 +49,7 @@ export function useNotifications(profile: Profile | null) {
   const [rayonsSansPlanning, setRayonsSansPlanning] = useState<RayonSansPlanning[]>([]);
   const [planningsAttenteDept, setPlanningsAttenteDept] = useState<PlanningAttenteDept[]>([]);
   const [planningsAttenteAdmin, setPlanningsAttenteAdmin] = useState<PlanningAttenteAdmin[]>([]);
+  const [planningsRejetes, setPlanningsRejetes] = useState<PlanningRejete[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -158,6 +169,49 @@ export function useNotifications(profile: Profile | null) {
     setPlanningsAttenteAdmin([...rayonItems, ...encItems]);
   }
 
+  /**
+   * Plannings renvoyés avec un motif (statut brouillon + commentaire) :
+   * - chef de rayon : ses plannings rayon rejetés par le département ou l'admin ;
+   * - chef de département : ses plannings d'encadrement rejetés par l'admin.
+   */
+  async function loadPlanningsRejetes() {
+    if (!profile) { setPlanningsRejetes([]); return; }
+
+    if (profile.role === 'chef_rayon' && profile.rayon_ids.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data } = await supabase
+        .from('plannings')
+        .select('id, semaine_debut, commentaire, rayons(nom, departements(nom))')
+        .eq('statut', 'brouillon')
+        .not('commentaire', 'is', null)
+        .in('rayon_id', profile.rayon_ids)
+        .order('semaine_debut', { ascending: false }) as { data: any[] | null };
+      setPlanningsRejetes((data ?? []).map(p => ({
+        id: p.id, type: 'rayon', rayonNom: p.rayons?.nom ?? '—',
+        depNom: p.rayons?.departements?.nom ?? '—', semaineDebut: p.semaine_debut, commentaire: p.commentaire,
+      })));
+      return;
+    }
+
+    if (profile.role === 'chef_departement' && profile.departement_ids.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data } = await supabase
+        .from('plannings_encadrement')
+        .select('id, semaine_debut, commentaire, departements(nom)')
+        .eq('statut', 'brouillon')
+        .not('commentaire', 'is', null)
+        .in('departement_id', profile.departement_ids)
+        .order('semaine_debut', { ascending: false }) as { data: any[] | null };
+      setPlanningsRejetes((data ?? []).map(p => ({
+        id: p.id, type: 'encadrement', rayonNom: null,
+        depNom: p.departements?.nom ?? '—', semaineDebut: p.semaine_debut, commentaire: p.commentaire,
+      })));
+      return;
+    }
+
+    setPlanningsRejetes([]);
+  }
+
   async function load() {
     if (!profile) return;
     setLoading(true);
@@ -166,6 +220,7 @@ export function useNotifications(profile: Profile | null) {
         loadRayonsSansPlanning(),
         loadPlanningsAttenteDept(),
         loadPlanningsAttenteAdmin(),
+        loadPlanningsRejetes(),
       ]);
     } catch (err) {
       console.error('[notifications] Erreur de chargement :', err);
@@ -178,7 +233,8 @@ export function useNotifications(profile: Profile | null) {
     rayonsSansPlanning,
     planningsAttenteDept,
     planningsAttenteAdmin,
-    count: rayonsSansPlanning.length + planningsAttenteDept.length + planningsAttenteAdmin.length,
+    planningsRejetes,
+    count: rayonsSansPlanning.length + planningsAttenteDept.length + planningsAttenteAdmin.length + planningsRejetes.length,
     loading,
     refresh: load,
   };
