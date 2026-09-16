@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Save, Loader2, Plus, Printer, FileText, Send, X, Copy } from 'lucide-react';
 import { supabase } from '../lib/supabase';
@@ -542,12 +541,14 @@ export default function Planning() {
       {planningId && (
         <div className="flex items-center gap-2 flex-wrap">
           <span className={`text-xs px-3 py-1.5 rounded-full font-medium ${
+            planningStatut === 'brouillon' && planningCommentaire ? 'bg-red-100 text-red-700' :
             planningStatut === 'brouillon' ? 'bg-gray-100 text-gray-600' :
             planningStatut === 'soumis_dept' ? 'bg-amber-100 text-amber-700' :
             planningStatut === 'soumis_admin' ? 'bg-blue-100 text-blue-700' :
             planningStatut === 'valide' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
           }`}>
-            {planningStatut === 'brouillon' ? 'Brouillon' :
+            {planningStatut === 'brouillon' && planningCommentaire ? 'Rejeté — à corriger puis re-soumettre' :
+             planningStatut === 'brouillon' ? 'Brouillon' :
              planningStatut === 'soumis_dept' ? "Soumis — en attente du Chef de Département" :
              planningStatut === 'soumis_admin' ? "Validé par le Département — en attente de l'Admin" :
              planningStatut === 'valide' ? 'Validé (Final) ✓' : 'Rejeté'}
