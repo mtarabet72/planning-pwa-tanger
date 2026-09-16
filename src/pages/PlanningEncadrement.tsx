@@ -460,11 +460,13 @@ export default function PlanningEncadrement() {
       {planningId && (
         <div className="flex items-center gap-2 flex-wrap">
           <span className={`text-xs px-3 py-1.5 rounded-full font-medium ${
+            planningStatut === 'brouillon' && planningCommentaire ? 'bg-red-100 text-red-700' :
             planningStatut === 'brouillon' ? 'bg-gray-100 text-gray-600' :
             planningStatut === 'soumis' ? 'bg-amber-100 text-amber-700' :
             planningStatut === 'valide' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
           }`}>
-            {planningStatut === 'brouillon' ? 'Brouillon' :
+            {planningStatut === 'brouillon' && planningCommentaire ? "Rejeté par l'Admin — à corriger puis re-soumettre" :
+             planningStatut === 'brouillon' ? 'Brouillon' :
              planningStatut === 'soumis' ? "Soumis — en attente de validation de l'Admin" :
              planningStatut === 'valide' ? 'Validé (Final) ✓' : 'Rejeté'}
           </span>
