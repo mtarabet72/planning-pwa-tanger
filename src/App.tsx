@@ -52,8 +52,11 @@ function AppShell() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showMore, setShowMore] = useState(false);
 
-  const { rayonsSansPlanning, planningsAttenteDept, planningsAttenteAdmin, count: notifCount } = useNotifications(profile);
+  const { rayonsSansPlanning, planningsAttenteDept, planningsAttenteAdmin, planningsRejetes, count: notifCount } = useNotifications(profile);
+  const nbRejetesRayon = planningsRejetes.filter(p => p.type === 'rayon').length;
+  const nbRejetesEnc = planningsRejetes.filter(p => p.type === 'encadrement').length;
   const nbSansPlanning = rayonsSansPlanning.length;
+  const nbPlanningBadge = nbSansPlanning + nbRejetesRayon;
   const nbAValider = planningsAttenteDept.length + planningsAttenteAdmin.length;
 
   if (!profile) return null;
@@ -126,6 +129,27 @@ function AppShell() {
               </div>
             ) : (
               <div className="max-h-96 overflow-y-auto divide-y divide-gray-100">
+                {planningsRejetes.length > 0 && (
+                  <div>
+                    <p className="px-4 pt-3 pb-1 text-xs font-semibold text-red-500 uppercase tracking-wide">Rejetés — à corriger</p>
+                    <div className="divide-y divide-gray-50">
+                      {planningsRejetes.map(p => (
+                        <button key={p.id} onClick={() => handleNav(p.type === 'rayon' ? 'planning' : 'encadrement')}
+                          className="w-full text-left px-4 py-3 hover:bg-red-50">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="font-medium text-sm text-gray-900 truncate">{p.type === 'rayon' ? p.rayonNom : `Encadrement — ${p.depNom}`}</p>
+                              <p className="text-xs text-gray-400">Semaine du {formatSemaineCourte(p.semaineDebut)}</p>
+                              <p className="text-xs text-red-600 mt-1">Motif : {p.commentaire}</p>
+                            </div>
+                            <span className="text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded-full font-medium shrink-0">Rejeté</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {rayonsSansPlanning.length > 0 && (
                   <div>
                     <p className="px-4 pt-3 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wide">Rayons sans planning</p>
@@ -260,7 +284,7 @@ function AppShell() {
       )}
 
       <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:w-72 lg:flex lg:flex-col bg-white border-r border-gray-200 shadow-xl z-40">
-        <Sidebar activeTab={activeTab} onNav={handleNav} onSignOut={() => void signOut()} isAdmin={isAdmin} isChefDep={isChefDep} fullName={fullName} role={profile.role} planningBadge={nbSansPlanning} validationBadge={nbAValider} />
+        <Sidebar activeTab={activeTab} onNav={handleNav} onSignOut={() => void signOut()} isAdmin={isAdmin} isChefDep={isChefDep} fullName={fullName} role={profile.role} planningBadge={nbPlanningBadge} validationBadge={nbAValider} encadrementBadge={nbRejetesEnc} />
       </div>
 
       {sidebarOpen && (
@@ -270,7 +294,7 @@ function AppShell() {
             <button onClick={() => setSidebarOpen(false)} className="absolute top-4 right-4 p-2 rounded-xl hover:bg-gray-100">
               <X className="w-5 h-5" />
             </button>
-            <Sidebar activeTab={activeTab} onNav={handleNav} onSignOut={() => void signOut()} isAdmin={isAdmin} isChefDep={isChefDep} fullName={fullName} role={profile.role} planningBadge={nbSansPlanning} validationBadge={nbAValider} />
+            <Sidebar activeTab={activeTab} onNav={handleNav} onSignOut={() => void signOut()} isAdmin={isAdmin} isChefDep={isChefDep} fullName={fullName} role={profile.role} planningBadge={nbPlanningBadge} validationBadge={nbAValider} encadrementBadge={nbRejetesEnc} />
           </div>
         </div>
       )}
@@ -387,7 +411,7 @@ function AppShell() {
           {bottomNav.map(item => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
-            const badge = item.id === 'planning' ? nbSansPlanning : item.id === 'validation' ? nbAValider : 0;
+            const badge = item.id === 'planning' ? nbPlanningBadge : item.id === 'validation' ? nbAValider : 0;
             return (
               <button key={item.id} onClick={() => handleNav(item.id)}
                 className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 transition-colors relative ${isActive ? 'text-blue-600' : 'text-gray-400'}`}>
