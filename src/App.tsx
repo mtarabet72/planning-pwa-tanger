@@ -52,7 +52,7 @@ function AppShell() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showMore, setShowMore] = useState(false);
 
-  const { rayonsSansPlanning, planningsAttenteDept, planningsAttenteAdmin, planningsRejetes, count: notifCount } = useNotifications(profile);
+  const { rayonsSansPlanning, planningsAttenteDept, planningsAttenteAdmin, planningsRejetes, planningsValides, marquerValidesVus, count: notifCount } = useNotifications(profile);
   const nbRejetesRayon = planningsRejetes.filter(p => p.type === 'rayon').length;
   const nbRejetesEnc = planningsRejetes.filter(p => p.type === 'encadrement').length;
   const nbSansPlanning = rayonsSansPlanning.length;
@@ -72,6 +72,13 @@ function AppShell() {
     { id: 'validation', label: 'Validation', icon: ClipboardCheck },
     { id: 'historique', label: 'Historique', icon: History },
   ] as const;
+
+  function ouvrirNotifications() {
+    setShowNotifications(v => {
+      if (!v) marquerValidesVus();
+      return !v;
+    });
+  }
 
   function handleNav(id: typeof activeTab) {
     setActiveTab(id);
@@ -122,7 +129,7 @@ function AppShell() {
               </button>
             </div>
 
-            {notifCount === 0 ? (
+            {notifCount === 0 && planningsValides.length === 0 ? (
               <div className="p-6 text-center">
                 <div className="text-2xl mb-2">✅</div>
                 <p className="text-sm text-gray-500">Rien à signaler pour le moment.</p>
@@ -181,6 +188,25 @@ function AppShell() {
                               <p className="text-xs text-gray-400">{p.depNom} · Semaine du {formatSemaineCourte(p.semaineDebut)}</p>
                             </div>
                             <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full font-medium">À valider</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {planningsValides.length > 0 && (
+                  <div>
+                    <p className="px-4 pt-3 pb-1 text-xs font-semibold text-emerald-600 uppercase tracking-wide">Validés récemment</p>
+                    <div className="divide-y divide-gray-50">
+                      {planningsValides.map(p => (
+                        <div key={p.id} className="px-4 py-3 hover:bg-gray-50">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="font-medium text-sm text-gray-900 truncate">{p.type === 'rayon' ? p.rayonNom : `Encadrement — ${p.depNom}`}</p>
+                              <p className="text-xs text-gray-400">Semaine du {formatSemaineCourte(p.semaineDebut)} · validé le {new Date(p.valideAt).toLocaleDateString('fr-FR')}</p>
+                            </div>
+                            <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-medium shrink-0">Validé ✓</span>
                           </div>
                         </div>
                       ))}
@@ -306,7 +332,7 @@ function AppShell() {
             <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">P</div>
             <span className="font-semibold text-gray-900 text-sm">{pageTitle[activeTab]}</span>
           </div>
-          <button onClick={() => setShowNotifications(v => !v)} className="relative p-2 rounded-xl hover:bg-gray-100">
+          <button onClick={ouvrirNotifications} className="relative p-2 rounded-xl hover:bg-gray-100">
             <Bell className="w-5 h-5 text-gray-600" />
             {notifCount > 0 && (
               <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
@@ -328,7 +354,7 @@ function AppShell() {
                 <p className="text-gray-500 mt-1 text-sm">Bienvenue, {fullName}</p>
               </div>
             </div>
-            <button onClick={() => setShowNotifications(v => !v)} className="relative p-3 rounded-xl hover:bg-gray-100 transition">
+            <button onClick={ouvrirNotifications} className="relative p-3 rounded-xl hover:bg-gray-100 transition">
               <Bell className="w-5 h-5 text-gray-600" />
               {notifCount > 0 && (
                 <span className="absolute top-1.5 right-1.5 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
@@ -346,7 +372,7 @@ function AppShell() {
                   {nbSansPlanning} rayon{nbSansPlanning > 1 ? 's' : ''} sans planning
                 </span>
               </div>
-              <button onClick={() => setShowNotifications(true)} className="text-xs text-amber-700 font-medium hover:text-amber-900">Voir →</button>
+              <button onClick={ouvrirNotifications} className="text-xs text-amber-700 font-medium hover:text-amber-900">Voir →</button>
             </div>
           )}
 
