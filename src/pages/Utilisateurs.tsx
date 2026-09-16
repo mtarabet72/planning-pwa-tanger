@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Pencil, Trash2, Loader2, X, Check, UserCog } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { appelerFonction } from '../lib/edgeFunctions';
 import type { Departement, Rayon, Role } from '../types';
 import { ROLE_LABELS } from '../types';
 
@@ -199,10 +200,16 @@ export default function Utilisateurs() {
 
   async function handleDelete(id: string) {
     setDeleting(true);
-    await supabase.from('profiles').delete().eq('id', id);
-    setDeleting(false);
-    setDeleteId(null);
-    loadAll();
+    try {
+      // Supprime le compte de connexion (Auth) ET le profil, via l'Edge Function delete-user
+      await appelerFonction('delete-user', { user_id: id });
+      setDeleteId(null);
+      loadAll();
+    } catch (e) {
+      alert(`Suppression impossible :\n${e instanceof Error ? e.message : e}`);
+    } finally {
+      setDeleting(false);
+    }
   }
 
   const needsDep = form.role === 'chef_departement' || form.role === 'chef_rayon';
