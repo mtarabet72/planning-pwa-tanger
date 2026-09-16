@@ -25,13 +25,15 @@ interface SidebarProps {
   planningBadge: number;
   /** Nombre de plannings en attente de validation par l'utilisateur (badge sur l'onglet Validation). */
   validationBadge: number;
+  /** Nombre de plannings d'encadrement rejetés à corriger (badge sur l'onglet Encadrement). */
+  encadrementBadge: number;
 }
 
 /**
  * Menu latéral (desktop + tiroir mobile).
  * Composant autonome : déclaré hors de AppShell pour que React ne le remonte pas à chaque rendu.
  */
-export default function Sidebar({ activeTab, onNav, onSignOut, isAdmin, isChefDep, fullName, role, planningBadge, validationBadge }: SidebarProps) {
+export default function Sidebar({ activeTab, onNav, onSignOut, isAdmin, isChefDep, fullName, role, planningBadge, validationBadge, encadrementBadge }: SidebarProps) {
   return (
     <div className="flex flex-col h-full">
       <div className="p-6 flex-1">
@@ -47,7 +49,7 @@ export default function Sidebar({ activeTab, onNav, onSignOut, isAdmin, isChefDe
             if ('adminOnly' in item && item.adminOnly && !isAdmin) return null;
             if ('depOnly' in item && item.depOnly && !isAdmin && !isChefDep) return null;
             const Icon = item.icon;
-            const badge = item.id === 'planning' ? planningBadge : item.id === 'validation' ? validationBadge : 0;
+            const badge = item.id === 'planning' ? planningBadge : item.id === 'validation' ? validationBadge : item.id === 'encadrement' ? encadrementBadge : 0;
             return (
               <button key={item.id} onClick={() => onNav(item.id)}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all ${activeTab === item.id ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-gray-100 text-gray-700'}`}>
