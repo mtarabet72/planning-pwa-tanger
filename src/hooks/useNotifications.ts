@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import type { Profile } from '../types';
 
@@ -26,12 +26,33 @@ export interface PlanningRejete {
   commentaire: string;
 }
 
+/** Planning validé définitivement par l'admin récemment (information pour le chef). */
+export interface PlanningValide {
+  id: string;
+  type: 'rayon' | 'encadrement';
+  rayonNom: string | null;
+  depNom: string;
+  semaineDebut: string;
+  valideAt: string;
+}
+
 export interface PlanningAttenteAdmin {
   id: string;
   type: 'rayon' | 'encadrement';
   rayonNom: string | null;
   depNom: string;
   semaineDebut: string;
+}
+
+const VUS_KEY = 'notif_valides_vus';
+const JOURS_VALIDES_VISIBLES = 7;
+const POLL_MS = 60_000;
+
+function lireVus(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(VUS_KEY) ?? '[]')); } catch { return new Set(); }
+}
+function ecrireVus(ids: Set<string>) {
+  try { localStorage.setItem(VUS_KEY, JSON.stringify([...ids].slice(-200))); } catch { /* stockage indisponible */ }
 }
 
 function getLundi(date: Date): string {
@@ -50,12 +71,37 @@ export function useNotifications(profile: Profile | null) {
   const [planningsAttenteDept, setPlanningsAttenteDept] = useState<PlanningAttenteDept[]>([]);
   const [planningsAttenteAdmin, setPlanningsAttenteAdmin] = useState<PlanningAttenteAdmin[]>([]);
   const [planningsRejetes, setPlanningsRejetes] = useState<PlanningRejete[]>([]);
+  const [planningsValides, setPlanningsValides] = useState<PlanningValide[]>([]);
+  const [validesVus, setValidesVus] = useState<Set<string>>(() => lireVus());
   const [loading, setLoading] = useState(false);
+  const loadingRef = useRef(false);
 
+  // Chargement initial + rafraîchissement automatique :
+  // - temps réel Supabase sur les tables de plannings (si Realtime est activé côté dashboard),
+  // - toutes les 60 s en secours,
+  // - au retour sur l'app (onglet/PWA remis au premier plan).
   useEffect(() => {
     if (!profile) return;
-    load();
-  }, [profile]);
+    void load();
+
+    const canal = supabase.channel(`notifs-${profile.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'plannings' }, () => void load())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'plannings_encadrement' }, () => void load())
+      .subscribe();
+
+    const timer = window.setInterval(() => void load(), POLL_MS);
+    const onVisible = () => { if (document.visibilityState === 'visible') void load(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+
+    return () => {
+      void supabase.removeChannel(canal);
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.id]);
 
   async function loadRayonsSansPlanning() {
     if (!profile) return;
@@ -212,8 +258,53 @@ export function useNotifications(profile: Profile | null) {
     setPlanningsRejetes([]);
   }
 
+  /**
+   * Plannings validés par l'admin dans les 7 derniers jours :
+   * - chef de rayon : ses plannings rayon ;
+   * - chef de département : ses plannings d'encadrement.
+   */
+  async function loadPlanningsValides() {
+    if (!profile) { setPlanningsValides([]); return; }
+    const depuis = new Date(Date.now() - JOURS_VALIDES_VISIBLES * 86400000).toISOString();
+
+    if (profile.role === 'chef_rayon' && profile.rayon_ids.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data } = await supabase
+        .from('plannings')
+        .select('id, semaine_debut, valide_at, rayons(nom, departements(nom))')
+        .eq('statut', 'valide')
+        .gte('valide_at', depuis)
+        .in('rayon_id', profile.rayon_ids)
+        .order('valide_at', { ascending: false }) as { data: any[] | null };
+      setPlanningsValides((data ?? []).map(p => ({
+        id: p.id, type: 'rayon', rayonNom: p.rayons?.nom ?? '—',
+        depNom: p.rayons?.departements?.nom ?? '—', semaineDebut: p.semaine_debut, valideAt: p.valide_at,
+      })));
+      return;
+    }
+
+    if (profile.role === 'chef_departement' && profile.departement_ids.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data } = await supabase
+        .from('plannings_encadrement')
+        .select('id, semaine_debut, valide_at, departements(nom)')
+        .eq('statut', 'valide')
+        .gte('valide_at', depuis)
+        .in('departement_id', profile.departement_ids)
+        .order('valide_at', { ascending: false }) as { data: any[] | null };
+      setPlanningsValides((data ?? []).map(p => ({
+        id: p.id, type: 'encadrement', rayonNom: null,
+        depNom: p.departements?.nom ?? '—', semaineDebut: p.semaine_debut, valideAt: p.valide_at,
+      })));
+      return;
+    }
+
+    setPlanningsValides([]);
+  }
+
   async function load() {
-    if (!profile) return;
+    if (!profile || loadingRef.current) return;
+    loadingRef.current = true;
     setLoading(true);
     try {
       await Promise.all([
@@ -221,20 +312,37 @@ export function useNotifications(profile: Profile | null) {
         loadPlanningsAttenteDept(),
         loadPlanningsAttenteAdmin(),
         loadPlanningsRejetes(),
+        loadPlanningsValides(),
       ]);
     } catch (err) {
       console.error('[notifications] Erreur de chargement :', err);
     } finally {
+      loadingRef.current = false;
       setLoading(false);
     }
   }
+
+  /** À appeler à l'ouverture du panneau : les validations affichées ne comptent plus dans le badge. */
+  const marquerValidesVus = useCallback(() => {
+    setValidesVus(prev => {
+      const next = new Set(prev);
+      for (const p of planningsValides) next.add(p.id);
+      ecrireVus(next);
+      return next;
+    });
+  }, [planningsValides]);
+
+  const nbValidesNonVus = planningsValides.filter(p => !validesVus.has(p.id)).length;
 
   return {
     rayonsSansPlanning,
     planningsAttenteDept,
     planningsAttenteAdmin,
     planningsRejetes,
-    count: rayonsSansPlanning.length + planningsAttenteDept.length + planningsAttenteAdmin.length + planningsRejetes.length,
+    planningsValides,
+    nbValidesNonVus,
+    marquerValidesVus,
+    count: rayonsSansPlanning.length + planningsAttenteDept.length + planningsAttenteAdmin.length + planningsRejetes.length + nbValidesNonVus,
     loading,
     refresh: load,
   };
