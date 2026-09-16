@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AlertTriangle, Loader2, CheckCircle2, ShieldAlert, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { appelerFonction } from '../lib/edgeFunctions';
 
 const MOT_CONFIRMATION = 'REINITIALISER';
 
@@ -41,7 +42,7 @@ export default function Reinitialisation() {
       { label: 'Membres de la permanence', run: async () => { const { error } = await supabase.from('permanence_membres').delete().not('id', 'is', null); if (error) throw error; } },
       { label: 'Plannings de permanence & direction', run: async () => { const { error } = await supabase.from('plannings_permanence').delete().not('id', 'is', null); if (error) throw error; } },
       { label: 'Collaborateurs', run: async () => { const { error } = await supabase.from('collaborateurs').delete().not('id', 'is', null); if (error) throw error; } },
-      { label: 'Comptes utilisateurs (hors Administrateurs)', run: async () => { const { error } = await supabase.from('profiles').delete().neq('role', 'administrateur'); if (error) throw error; } },
+      { label: 'Comptes utilisateurs (hors Administrateurs) — Auth + profils', run: async () => { await appelerFonction('delete-user', { all_non_admin: true }); } },
     ];
 
     setProgres(steps.map(s => ({ label: s.label, status: 'attente' })));
@@ -206,9 +207,8 @@ export default function Reinitialisation() {
       )}
 
       <p className="text-xs text-gray-400 leading-relaxed">
-        Remarque : cela supprime les fiches (table <span className="font-mono">profiles</span>) des comptes non-Admin, mais pas leur
-        accès de connexion Supabase Auth (nécessite une action côté Supabase avec la clé service_role). Pense à désactiver/supprimer
-        ces comptes de connexion depuis le tableau de bord Supabase si besoin.
+        Remarque : les comptes non-Admin sont supprimés intégralement (profil et accès de connexion Supabase Auth) via l'Edge
+        Function <span className="font-mono">delete-user</span>. Les adresses e-mail peuvent donc être réutilisées immédiatement.
       </p>
     </div>
   );
