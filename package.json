@@ -8,6 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "types": "supabase gen types typescript --project-id drsbievfyezvjrqyvctb > src/types/database.ts"
   },
   "dependencies": {
@@ -30,6 +32,7 @@
     "tailwindcss": "^3.4.13",
     "typescript": "~6.0.2",
     "vite": "^8.1.1",
-    "vite-plugin-pwa": "^1.0.0"
+    "vite-plugin-pwa": "^1.0.0",
+    "vitest": "^5.0.1"
   }
 }

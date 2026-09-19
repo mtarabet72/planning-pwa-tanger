@@ -10,6 +10,7 @@ import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 import { getLundi, addDays, formatDate, formatDisplay, formatDisplayLong, getNumeroSemaine, JOURS } from '../lib/dates';
 import { type Poste, POSTES_CYCLE, POSTES_SPECIAUX, POSTES_TOUS, POSTE_STYLE, POSTE_LABEL, POSTE_FILL } from '../lib/postes';
+import { detecterAnomalies } from '../lib/anomalies';
 
 type Fonction = 'employe' | 'chef_rayon' | 'assistante' | 'chef_departement';
 type StatutEnc = 'brouillon' | 'soumis' | 'valide' | 'rejete';
@@ -40,7 +41,7 @@ type Grille = Record<string, Record<string, Poste>>;
 export default function PlanningEncadrement() {
   const { profile } = useAuth();
   const { runCheck } = useAssistant();
-  const { toast } = useToast();
+  const { toast, confirmDialog } = useToast();
   const isAdmin = profile ? canAccessAdmin(profile.role) : false;
   const isChefDep = profile?.role === 'chef_departement';
 
@@ -107,7 +108,7 @@ export default function PlanningEncadrement() {
       .order('fonction')
       .order('nom');
 
-        // Cf. Departements.tsx : `rayons` est déduit comme un tableau par le générateur de types,
+    // Cf. Departements.tsx : `rayons` est déduit comme un tableau par le générateur de types,
     // alors que PostgREST renvoie un objet unique pour cette relation many-to-one.
     const colsList: Collaborateur[] = ((cols ?? []) as unknown as { id: string; nom: string; prenom: string; fonction: Fonction; rayons: { nom: string } | null }[]).map(c => ({
       id: c.id, nom: c.nom, prenom: c.prenom, fonction: c.fonction, rayonNom: c.rayons?.nom ?? '—',
@@ -222,9 +223,24 @@ export default function PlanningEncadrement() {
 
   /** Soumet le planning d'encadrement à l'administrateur pour validation finale. */
   async function handleSoumettre() {
-    if (!planningId) return;
+    if (!planningId || !profile) return;
     setSubmitting(true);
     try {
+      // Contrôle frais (seule la règle "double affectation" peut réellement se déclencher ici,
+      // les règles de repos/effectif ne portant que sur le planning rayon — cf. lib/anomalies.ts).
+      const toutesAnomalies = await detecterAnomalies(profile, semaine);
+      const collabIds = new Set(collaborateurs.map(c => c.id));
+      const bloquantes = toutesAnomalies.filter(a => a.gravite === 'bloquante' && collabIds.has(a.collaborateurId));
+      if (bloquantes.length > 0) {
+        const ok = await confirmDialog({
+          title: `${bloquantes.length} anomalie${bloquantes.length > 1 ? 's' : ''} bloquante${bloquantes.length > 1 ? 's' : ''} détectée${bloquantes.length > 1 ? 's' : ''}`,
+          body: bloquantes.map(a => a.message).join('\n\n') + '\n\nSoumettre quand même ?',
+          confirmLabel: 'Soumettre quand même',
+          danger: true,
+        });
+        if (!ok) { setSubmitting(false); return; }
+      }
+
       const { error } = await supabase.from('plannings_encadrement')
         .update({ statut: 'soumis', commentaire: null }).eq('id', planningId);
       if (error) throw error;
