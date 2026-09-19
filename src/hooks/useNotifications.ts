@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import { getLundiIso } from '../lib/dates';
 import type { Profile } from '../types';
 
 export interface RayonSansPlanning {
@@ -55,17 +56,6 @@ function ecrireVus(ids: Set<string>) {
   try { localStorage.setItem(VUS_KEY, JSON.stringify([...ids].slice(-200))); } catch { /* stockage indisponible */ }
 }
 
-function getLundi(date: Date): string {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
-
 export function useNotifications(profile: Profile | null) {
   const [rayonsSansPlanning, setRayonsSansPlanning] = useState<RayonSansPlanning[]>([]);
   const [planningsAttenteDept, setPlanningsAttenteDept] = useState<PlanningAttenteDept[]>([]);
@@ -105,11 +95,10 @@ export function useNotifications(profile: Profile | null) {
 
   async function loadRayonsSansPlanning() {
     if (!profile) return;
-    const semaine = getLundi(new Date());
+    const semaine = getLundiIso(new Date());
     const isChefDep = profile.role === 'chef_departement';
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let rayQuery: any = supabase
+    let rayQuery = supabase
       .from('rayons')
       .select('id, nom, departements(nom)')
       .eq('actif', true)
@@ -141,8 +130,9 @@ export function useNotifications(profile: Profile | null) {
       if (c.rayon_id) colMap[c.rayon_id] = (colMap[c.rayon_id] ?? 0) + 1;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const retard: RayonSansPlanning[] = (rayons as any[])
+    // Cf. Departements.tsx : `departements` est déduit comme un tableau par le générateur de
+    // types pour cette relation imbriquée, alors que PostgREST renvoie un objet unique.
+    const retard: RayonSansPlanning[] = (rayons as unknown as { id: string; nom: string; departements: { nom: string } | null }[])
       .filter(r => !planifiesIds.has(r.id))
       .filter(r => (colMap[r.id] ?? 0) > 0)
       .map(r => ({
@@ -165,13 +155,13 @@ export function useNotifications(profile: Profile | null) {
     const rayonIds = (rayonsDep ?? []).map((r: { id: string }) => r.id);
     if (rayonIds.length === 0) { setPlanningsAttenteDept([]); return; }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    type RayonPlanningRow = { id: string; semaine_debut: string; rayons: { nom: string; departements: { nom: string } | null } | null };
     const { data } = await supabase
       .from('plannings')
       .select('id, semaine_debut, rayons(nom, departements(nom))')
       .eq('statut', 'soumis_dept')
       .in('rayon_id', rayonIds)
-      .order('semaine_debut') as { data: any[] | null };
+      .order('semaine_debut') as { data: RayonPlanningRow[] | null };
 
     setPlanningsAttenteDept((data ?? []).map(p => ({
       id: p.id,
@@ -185,7 +175,8 @@ export function useNotifications(profile: Profile | null) {
   async function loadPlanningsAttenteAdmin() {
     if (!profile || profile.role !== 'administrateur') { setPlanningsAttenteAdmin([]); return; }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    type RayonPlanningRow = { id: string; semaine_debut: string; rayons: { nom: string; departements: { nom: string } | null } | null };
+    type EncPlanningRow = { id: string; semaine_debut: string; departements: { nom: string } | null };
     const [{ data: rayonData }, { data: encData }] = await Promise.all([
       supabase.from('plannings')
         .select('id, semaine_debut, rayons(nom, departements(nom))')
@@ -195,7 +186,7 @@ export function useNotifications(profile: Profile | null) {
         .select('id, semaine_debut, departements(nom)')
         .eq('statut', 'soumis')
         .order('semaine_debut'),
-    ]) as [{ data: any[] | null }, { data: any[] | null }];
+    ]) as [{ data: RayonPlanningRow[] | null }, { data: EncPlanningRow[] | null }];
 
     const rayonItems: PlanningAttenteAdmin[] = (rayonData ?? []).map(p => ({
       id: p.id,
@@ -224,14 +215,14 @@ export function useNotifications(profile: Profile | null) {
     if (!profile) { setPlanningsRejetes([]); return; }
 
     if (profile.role === 'chef_rayon' && profile.rayon_ids.length > 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      type RayonRejeteRow = { id: string; semaine_debut: string; commentaire: string; rayons: { nom: string; departements: { nom: string } | null } | null };
       const { data } = await supabase
         .from('plannings')
         .select('id, semaine_debut, commentaire, rayons(nom, departements(nom))')
         .eq('statut', 'brouillon')
         .not('commentaire', 'is', null)
         .in('rayon_id', profile.rayon_ids)
-        .order('semaine_debut', { ascending: false }) as { data: any[] | null };
+        .order('semaine_debut', { ascending: false }) as { data: RayonRejeteRow[] | null };
       setPlanningsRejetes((data ?? []).map(p => ({
         id: p.id, type: 'rayon', rayonNom: p.rayons?.nom ?? '—',
         depNom: p.rayons?.departements?.nom ?? '—', semaineDebut: p.semaine_debut, commentaire: p.commentaire,
@@ -240,14 +231,14 @@ export function useNotifications(profile: Profile | null) {
     }
 
     if (profile.role === 'chef_departement' && profile.departement_ids.length > 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      type EncRejeteRow = { id: string; semaine_debut: string; commentaire: string; departements: { nom: string } | null };
       const { data } = await supabase
         .from('plannings_encadrement')
         .select('id, semaine_debut, commentaire, departements(nom)')
         .eq('statut', 'brouillon')
         .not('commentaire', 'is', null)
         .in('departement_id', profile.departement_ids)
-        .order('semaine_debut', { ascending: false }) as { data: any[] | null };
+        .order('semaine_debut', { ascending: false }) as { data: EncRejeteRow[] | null };
       setPlanningsRejetes((data ?? []).map(p => ({
         id: p.id, type: 'encadrement', rayonNom: null,
         depNom: p.departements?.nom ?? '—', semaineDebut: p.semaine_debut, commentaire: p.commentaire,
@@ -268,14 +259,14 @@ export function useNotifications(profile: Profile | null) {
     const depuis = new Date(Date.now() - JOURS_VALIDES_VISIBLES * 86400000).toISOString();
 
     if (profile.role === 'chef_rayon' && profile.rayon_ids.length > 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      type RayonValideRow = { id: string; semaine_debut: string; valide_at: string; rayons: { nom: string; departements: { nom: string } | null } | null };
       const { data } = await supabase
         .from('plannings')
         .select('id, semaine_debut, valide_at, rayons(nom, departements(nom))')
         .eq('statut', 'valide')
         .gte('valide_at', depuis)
         .in('rayon_id', profile.rayon_ids)
-        .order('valide_at', { ascending: false }) as { data: any[] | null };
+        .order('valide_at', { ascending: false }) as { data: RayonValideRow[] | null };
       setPlanningsValides((data ?? []).map(p => ({
         id: p.id, type: 'rayon', rayonNom: p.rayons?.nom ?? '—',
         depNom: p.rayons?.departements?.nom ?? '—', semaineDebut: p.semaine_debut, valideAt: p.valide_at,
@@ -284,14 +275,14 @@ export function useNotifications(profile: Profile | null) {
     }
 
     if (profile.role === 'chef_departement' && profile.departement_ids.length > 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      type EncValideRow = { id: string; semaine_debut: string; valide_at: string; departements: { nom: string } | null };
       const { data } = await supabase
         .from('plannings_encadrement')
         .select('id, semaine_debut, valide_at, departements(nom)')
         .eq('statut', 'valide')
         .gte('valide_at', depuis)
         .in('departement_id', profile.departement_ids)
-        .order('valide_at', { ascending: false }) as { data: any[] | null };
+        .order('valide_at', { ascending: false }) as { data: EncValideRow[] | null };
       setPlanningsValides((data ?? []).map(p => ({
         id: p.id, type: 'encadrement', rayonNom: null,
         depNom: p.departements?.nom ?? '—', semaineDebut: p.semaine_debut, valideAt: p.valide_at,

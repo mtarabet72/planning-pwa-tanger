@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { getLundi as startOfWeek, addDays, formatDate } from './dates';
 import type { Profile } from '../types';
 
 // Codes poste considérés comme "travail effectif" (occupent le collaborateur ce jour-là).
@@ -20,11 +21,23 @@ export type AnomalieType =
 export interface Anomalie {
   id: string;
   type: AnomalieType;
+  /** Bloquante = violation dure des règles (double affectation, absence totale de repos).
+   *  Avertissement = signal de qualité (répartition, cas particuliers), n'empêche pas la soumission sans confirmation. */
+  gravite: 'bloquante' | 'avertissement';
   collaborateurId: string;
   collaborateurNom: string;
   message: string;
   detail?: string;
 }
+
+const GRAVITE_PAR_TYPE: Record<AnomalieType, 'bloquante' | 'avertissement'> = {
+  double_affectation: 'bloquante',
+  repos_hebdo: 'bloquante',
+  trop_repos: 'avertissement',
+  effectif1_hors_matin: 'avertissement',
+  effectif2_couverture: 'avertissement',
+  effectif3_repartition: 'avertissement',
+};
 
 interface LigneBrute {
   collaborateur_id: string;
@@ -32,28 +45,6 @@ interface LigneBrute {
   poste: string;
   source: 'Planning Rayon' | 'Encadrement' | 'Permanence' | 'Direction';
   rayon_id?: string; // renseigné uniquement pour les lignes issues du planning Rayon
-}
-
-function formatDate(date: Date): string {
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, '0');
-  const dd = String(date.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-function startOfWeek(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function addDays(date: Date, n: number): Date {
-  const d = new Date(date);
-  d.setDate(d.getDate() + n);
-  return d;
 }
 
 /**
@@ -65,7 +56,9 @@ function addDays(date: Date, n: number): Date {
  * - chef_rayon : uniquement son/ses rayon(s).
  */
 /** Enveloppe .in() en évitant un tableau vide (qui peut être mal interprété selon la version de PostgREST). */
-function safeIn<T>(builder: any, column: string, values: T[]) {
+function safeIn<B extends { eq(column: string, value: unknown): B; in(column: string, values: readonly unknown[]): B }>(
+  builder: B, column: string, values: unknown[]
+): B {
   if (values.length === 0) return builder.eq(column, '__aucun__'); // ne matchera jamais rien
   return builder.in(column, values);
 }
@@ -88,7 +81,7 @@ async function fetchLignesSemaine(profile: Profile, semaineDebut: string): Promi
       } else {
         const { data: rayonsDep, error } = await safeIn(supabase.from('rayons').select('id'), 'departement_id', departementIds);
         if (error) throw error;
-        rayonIdsScope = (rayonsDep ?? []).map((r: any) => r.id);
+        rayonIdsScope = (rayonsDep ?? []).map((r) => r.id);
       }
     }
   } catch (err) {
@@ -103,15 +96,15 @@ async function fetchLignesSemaine(profile: Profile, semaineDebut: string): Promi
       if (rayonIdsScope !== null) q = safeIn(q, 'rayon_id', rayonIdsScope);
       const { data: plannings, error } = await q;
       if (error) throw error;
-      const ids = (plannings ?? []).map((p: any) => p.id);
+      const ids = (plannings ?? []).map((p) => p.id);
       const rayonIdParPlanning = new Map<string, string>(
-        (plannings ?? []).map((p: any) => [p.id, p.rayon_id])
+        (plannings ?? []).map((p) => [p.id, p.rayon_id])
       );
       if (ids.length > 0) {
         const { data, error: errLignes } = await supabase
           .from('planning_lignes').select('planning_id, collaborateur_id, jour, poste').in('planning_id', ids);
         if (errLignes) throw errLignes;
-        (data ?? []).forEach((l: any) => lignes.push({
+        (data ?? []).forEach((l) => lignes.push({
           collaborateur_id: l.collaborateur_id,
           jour: l.jour,
           poste: l.poste,
@@ -131,12 +124,12 @@ async function fetchLignesSemaine(profile: Profile, semaineDebut: string): Promi
       if (isChefDept) q = safeIn(q, 'departement_id', departementIds);
       const { data: plannings, error } = await q;
       if (error) throw error;
-      const ids = (plannings ?? []).map((p: any) => p.id);
+      const ids = (plannings ?? []).map((p) => p.id);
       if (ids.length > 0) {
         const { data, error: errLignes } = await supabase
           .from('planning_encadrement_lignes').select('collaborateur_id, jour, poste').in('planning_id', ids);
         if (errLignes) throw errLignes;
-        (data ?? []).forEach((l: any) => lignes.push({ ...l, source: 'Encadrement' }));
+        (data ?? []).forEach((l) => lignes.push({ ...l, source: 'Encadrement' }));
       }
     } catch (err) {
       console.error('[assistant] Erreur lecture planning encadrement :', err);
@@ -151,10 +144,10 @@ async function fetchLignesSemaine(profile: Profile, semaineDebut: string): Promi
       if (error) throw error;
       for (const p of plannings ?? []) {
         const { data, error: errLignes } = await supabase
-          .from('permanence_lignes').select('collaborateur_id, jour, poste').eq('planning_id', (p as any).id);
+          .from('permanence_lignes').select('collaborateur_id, jour, poste').eq('planning_id', p.id);
         if (errLignes) throw errLignes;
-        const source = (p as any).type === 'direction' ? 'Direction' : 'Permanence';
-        (data ?? []).forEach((l: any) => lignes.push({ ...l, source }));
+        const source = p.type === 'direction' ? 'Direction' : 'Permanence';
+        (data ?? []).forEach((l) => lignes.push({ ...l, source }));
       }
     } catch (err) {
       console.error('[assistant] Erreur lecture permanence/direction :', err);
@@ -183,7 +176,7 @@ export async function detecterAnomalies(profile: Profile, date: Date = new Date(
   const { data: collabs } = await supabase
     .from('collaborateurs').select('id, nom, prenom').in('id', collabIds);
   const nomsParId = new Map<string, string>(
-    (collabs ?? []).map((c: any) => [c.id, `${c.nom} ${c.prenom}`])
+    (collabs ?? []).map((c) => [c.id, `${c.nom} ${c.prenom}`])
   );
   const nomOf = (id: string) => nomsParId.get(id) ?? id;
 
@@ -204,6 +197,7 @@ export async function detecterAnomalies(profile: Profile, date: Date = new Date(
       anomalies.push({
         id: `double_${key}`,
         type: 'double_affectation',
+        gravite: GRAVITE_PAR_TYPE.double_affectation,
         collaborateurId: collabId,
         collaborateurNom: nomOf(collabId),
         message: `${nomOf(collabId)} est affecté(e) le ${jour} dans plusieurs plannings à la fois (${Array.from(sourcesDistinctes).join(' + ')}).`,
@@ -227,6 +221,7 @@ export async function detecterAnomalies(profile: Profile, date: Date = new Date(
       anomalies.push({
         id: `repos_${collabId}_${semaineDebut}`,
         type: 'repos_hebdo',
+        gravite: GRAVITE_PAR_TYPE.repos_hebdo,
         collaborateurId: collabId,
         collaborateurNom: nomOf(collabId),
         message: `${nomOf(collabId)} n'a aucun jour de repos (R) sur la semaine du ${semaineDebut}.`,
@@ -235,6 +230,7 @@ export async function detecterAnomalies(profile: Profile, date: Date = new Date(
       anomalies.push({
         id: `trop_repos_${collabId}_${semaineDebut}`,
         type: 'trop_repos',
+        gravite: GRAVITE_PAR_TYPE.trop_repos,
         collaborateurId: collabId,
         collaborateurNom: nomOf(collabId),
         message: `${nomOf(collabId)} a ${nbRepos} jours de repos (R) sur la semaine du ${semaineDebut} — au-delà du maximum de ${MAX_REPOS_PAR_SEMAINE}.`,
@@ -257,7 +253,7 @@ export async function detecterAnomalies(profile: Profile, date: Date = new Date(
   const rayonIdsConcernes = Array.from(parRayon.keys());
   const { data: rayonsData } = await supabase
     .from('rayons').select('id, nom').in('id', rayonIdsConcernes.length > 0 ? rayonIdsConcernes : ['__aucun__']);
-  const nomRayonMap = new Map<string, string>((rayonsData ?? []).map((r: any) => [r.id, r.nom]));
+  const nomRayonMap = new Map<string, string>((rayonsData ?? []).map((r) => [r.id, r.nom]));
   const nomRayon = (id: string) => nomRayonMap.get(id) ?? id;
 
   for (const [rayonId, lignesDuRayon] of parRayon.entries()) {
@@ -273,6 +269,7 @@ export async function detecterAnomalies(profile: Profile, date: Date = new Date(
           anomalies.push({
             id: `effectif1_${collabId}_${l.jour}`,
             type: 'effectif1_hors_matin',
+            gravite: GRAVITE_PAR_TYPE.effectif1_hors_matin,
             collaborateurId: collabId,
             collaborateurNom: nomOf(collabId),
             message: `${nomOf(collabId)} (rayon ${nomR}, effectif 1) est en poste "${l.poste}" le ${l.jour} — un rayon à 1 seul employé doit être planifié en Matin (M), avec 1 jour de repos hebdomadaire.`,
@@ -295,6 +292,7 @@ export async function detecterAnomalies(profile: Profile, date: Date = new Date(
           anomalies.push({
             id: `effectif2_${rayonId}_${jour}`,
             type: 'effectif2_couverture',
+            gravite: GRAVITE_PAR_TYPE.effectif2_couverture,
             collaborateurId: group[0].collaborateur_id,
             collaborateurNom: noms,
             message: `Rayon ${nomR} (effectif 2) le ${jour} : combinaison de postes "${postes.join('+')}" invalide — attendu M+S ou M+T (un Matin et un Soir/Tranche), jamais le même poste pour les deux.`,
@@ -333,6 +331,7 @@ export async function detecterAnomalies(profile: Profile, date: Date = new Date(
           anomalies.push({
             id: `effectif3_${rayonId}_${code.replace('/', '')}`,
             type: 'effectif3_repartition',
+            gravite: GRAVITE_PAR_TYPE.effectif3_repartition,
             collaborateurId: collabsDuRayon[0],
             collaborateurNom: nomR,
             message: `Rayon ${nomR} (effectif ${effectif}) : répartition des postes "${code === 'M' ? 'Matin' : 'Soir/Tranche'}" déséquilibrée entre employés (écart de ${max - min} jours) — ${detail}.`,

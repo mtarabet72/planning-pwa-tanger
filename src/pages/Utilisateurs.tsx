@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Plus, Pencil, Trash2, Loader2, X, Check, UserCog } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { appelerFonction } from '../lib/edgeFunctions';
+import { useToast } from '../context/ToastContext';
 import type { Departement, Rayon, Role } from '../types';
 import { ROLE_LABELS } from '../types';
 
@@ -42,6 +43,7 @@ const ROLE_COLORS: Record<Role, string> = {
 };
 
 export default function Utilisateurs() {
+  const { toast } = useToast();
   const [utilisateurs, setUtilisateurs] = useState<Utilisateur[]>([]);
   const [departements, setDepartements] = useState<Departement[]>([]);
   const [rayons, setRayons] = useState<Rayon[]>([]);
@@ -63,9 +65,8 @@ export default function Utilisateurs() {
       supabase.from('departements').select('*').order('nom'),
       supabase.from('rayons').select('*').order('nom'),
     ]);
-    setUtilisateurs(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ((users ?? []) as any[]).map(u => ({
+        setUtilisateurs(
+      (users ?? []).map(u => ({
         ...u,
         departement_ids: u.departement_ids ?? [],
         rayon_ids: u.rayon_ids ?? [],
@@ -206,7 +207,7 @@ export default function Utilisateurs() {
       setDeleteId(null);
       loadAll();
     } catch (e) {
-      alert(`Suppression impossible :\n${e instanceof Error ? e.message : e}`);
+      toast.error(`Suppression impossible :\n${e instanceof Error ? e.message : e}`);
     } finally {
       setDeleting(false);
     }
@@ -425,7 +426,7 @@ export default function Utilisateurs() {
               <Trash2 className="w-6 h-6 text-red-500" />
             </div>
             <h3 className="font-semibold text-lg mb-2">Supprimer cet utilisateur ?</h3>
-            <p className="text-sm text-gray-500 mb-6">Le profil sera supprimé. Le compte Auth restera dans Supabase.</p>
+            <p className="text-sm text-gray-500 mb-6">Le compte et son accès de connexion seront supprimés définitivement.</p>
             <div className="flex gap-3">
               <button onClick={() => setDeleteId(null)} className="flex-1 py-3 rounded-2xl border border-gray-200 text-gray-600 text-sm font-medium">
                 Annuler

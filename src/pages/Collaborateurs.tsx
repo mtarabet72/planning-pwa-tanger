@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Plus, Pencil, Trash2, Search, Loader2, X, Check, Phone } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import type { Departement, Rayon } from '../types';
+import { useToast } from '../context/ToastContext';
 
 type Fonction = 'employe' | 'chef_rayon' | 'assistante' | 'chef_departement';
 
@@ -62,6 +63,7 @@ const EMPTY_FORM: FormData = {
 };
 
 export default function Collaborateurs() {
+  const { toast } = useToast();
   const [collaborateurs, setCollaborateurs] = useState<Collaborateur[]>([]);
   const [departements, setDepartements] = useState<Departement[]>([]);
   const [rayons, setRayons] = useState<Rayon[]>([]);
@@ -87,9 +89,10 @@ export default function Collaborateurs() {
       supabase.from('departements').select('*').order('nom'),
       supabase.from('rayons').select('*').order('nom'),
     ]);
-    setCollaborateurs(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (((cols ?? []) as any[]).map(c => ({
+        setCollaborateurs(
+      // Les types générés déduisent `departements`/`rayons` comme des tableaux pour ces relations
+      // imbriquées, alors que PostgREST renvoie un objet unique (many-to-one) — cf. Departements.tsx.
+      (((cols ?? []) as unknown as (Collaborateur & { departements: { nom: string } | null; rayons: { nom: string } | null })[]).map(c => ({
         ...c,
         rayons_geres_ids: c.rayons_geres_ids ?? [],
         departements_geres_ids: c.departements_geres_ids ?? [],
@@ -168,7 +171,7 @@ export default function Collaborateurs() {
       : await supabase.from('collaborateurs').insert(payload);
     setSaving(false);
     if (error) {
-      alert(`Erreur lors de l'enregistrement du collaborateur :\n${error.message}`);
+      toast.error(`Erreur lors de l'enregistrement du collaborateur :\n${error.message}`);
       return;
     }
     setShowForm(false);

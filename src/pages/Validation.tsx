@@ -3,6 +3,7 @@ import { Loader2, CheckCircle, XCircle, Clock, Send, ChevronLeft, ChevronRight, 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { canAccessAdmin } from '../types';
+import { getLundi, addDays, formatDate, formatDisplay } from '../lib/dates';
 
 type StatutRayon = 'brouillon' | 'soumis_dept' | 'soumis_admin' | 'valide' | 'rejete';
 type StatutEnc = 'brouillon' | 'soumis' | 'valide' | 'rejete';
@@ -47,29 +48,6 @@ const STATUT_PERM_STYLE: Record<StatutPerm, string> = {
 const STATUT_PERM_LABEL: Record<StatutPerm, string> = {
   brouillon: 'Brouillon', valide: 'Validé',
 };
-
-function getLundi(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-function addDays(date: Date, n: number): Date {
-  const d = new Date(date);
-  d.setDate(d.getDate() + n);
-  return d;
-}
-function formatDate(date: Date): string {
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, '0');
-  const dd = String(date.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
-function formatDisplay(date: Date): string {
-  return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
-}
 
 interface RayonPlanning {
   id: string;
@@ -131,8 +109,7 @@ export default function Validation() {
   // ============ RAYON ============
   async function loadRayon() {
     const debut = formatDate(semaine);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let query: any = supabase
+    let query = supabase
       .from('plannings')
       .select('id, rayon_id, statut, commentaire, rayons(nom, departement_id, departements(nom))')
       .eq('semaine_debut', debut)
@@ -146,9 +123,15 @@ export default function Validation() {
     }
 
     const { data } = await query;
+    // Cf. Departements.tsx : `rayons`/`departements` sont déduits comme des tableaux par le
+    // générateur de types pour ces relations imbriquées, alors que PostgREST renvoie un objet
+    // unique (many-to-one).
+    type PlanningRow = {
+      id: string; rayon_id: string; statut: string; commentaire: string | null;
+      rayons: { nom: string; departement_id: string; departements: { nom: string } | null } | null;
+    };
     const items: RayonPlanning[] = await Promise.all(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (data ?? []).map(async (p: any) => {
+      ((data ?? []) as unknown as PlanningRow[]).map(async (p) => {
         const { count } = await supabase.from('planning_lignes').select('id', { count: 'exact' }).eq('planning_id', p.id);
         return {
           id: p.id, rayon_id: p.rayon_id, departement_id: p.rayons?.departement_id ?? '',
@@ -200,8 +183,7 @@ export default function Validation() {
   // ============ ENCADREMENT ============
   async function loadEncadrement() {
     const debut = formatDate(semaine);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let query: any = supabase
+    let query = supabase
       .from('plannings_encadrement')
       .select('id, departement_id, statut, commentaire, departements(nom)')
       .eq('semaine_debut', debut)
@@ -212,9 +194,12 @@ export default function Validation() {
     }
 
     const { data } = await query;
+    type PlanningEncRow = {
+      id: string; departement_id: string; statut: string; commentaire: string | null;
+      departements: { nom: string } | null;
+    };
     const items: EncPlanning[] = await Promise.all(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (data ?? []).map(async (p: any) => {
+      ((data ?? []) as unknown as PlanningEncRow[]).map(async (p) => {
         const { count } = await supabase.from('planning_encadrement_lignes').select('id', { count: 'exact' }).eq('planning_id', p.id);
         return {
           id: p.id, departement_id: p.departement_id, statut: p.statut as StatutEnc,

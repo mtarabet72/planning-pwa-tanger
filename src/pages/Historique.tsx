@@ -5,26 +5,10 @@ import { useAuth } from '../context/AuthContext';
 import { canAccessAdmin } from '../types';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
+import { addDays, formatDate, formatDisplay, formatDisplayLong, JOURS } from '../lib/dates';
+import { type Poste, POSTE_STYLE_FLAT as POSTE_STYLE, POSTE_FILL, estTravail, estRepos, estAbsence } from '../lib/postes';
 
-type Poste = 'M' | 'T' | 'S' | 'R' | 'C' | 'HN' | 'MAL' | 'AT' | 'FOR';
 type Statut = 'brouillon' | 'soumis' | 'valide' | 'rejete';
-
-const POSTE_STYLE: Record<Poste, string> = {
-  M:   'bg-amber-100 text-amber-800',
-  T:   'bg-blue-100 text-blue-800',
-  S:   'bg-indigo-100 text-indigo-800',
-  R:   'bg-gray-100 text-gray-500',
-  C:   'bg-emerald-100 text-emerald-800',
-  HN:  'bg-teal-100 text-teal-800',
-  MAL: 'bg-rose-100 text-rose-800',
-  AT:  'bg-red-100 text-red-800',
-  FOR: 'bg-violet-100 text-violet-800',
-};
-
-const POSTE_FILL: Record<Poste, [number, number, number]> = {
-  M: [254, 243, 199], T: [219, 234, 254], S: [224, 231, 255], R: [243, 244, 246], C: [209, 250, 229],
-  HN: [204, 251, 241], MAL: [255, 228, 230], AT: [254, 226, 226], FOR: [237, 233, 254],
-};
 
 const STATUT_STYLE: Record<Statut, string> = {
   brouillon: 'bg-gray-100 text-gray-600',
@@ -39,29 +23,6 @@ const STATUT_LABEL: Record<Statut, string> = {
   valide:    'Validé',
   rejete:    'Rejeté',
 };
-
-const JOURS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
-
-function addDays(date: Date, n: number): Date {
-  const d = new Date(date);
-  d.setDate(d.getDate() + n);
-  return d;
-}
-
-function formatDate(date: Date): string {
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, '0');
-  const dd = String(date.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-function formatDisplay(date: Date): string {
-  return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
-}
-
-function formatDisplayLong(date: Date): string {
-  return date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
-}
 
 function parseDate(str: string): Date {
   const [y, m, d] = str.split('-').map(Number);
@@ -145,8 +106,7 @@ export default function Historique() {
   async function loadFilters() {
     const { data: deps } = await supabase.from('departements').select('id, nom').order('nom');
     setDepartements(deps ?? []);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let rayQuery: any = supabase.from('rayons').select('id, nom, departement_id').eq('actif', true).order('nom');
+    let rayQuery = supabase.from('rayons').select('id, nom, departement_id').eq('actif', true).order('nom');
     if (profile?.role === 'chef_rayon' && profile.rayon_ids.length > 0) {
       rayQuery = rayQuery.in('id', profile.rayon_ids);
     } else if (isChefDep && (profile?.departement_ids?.length ?? 0) > 0) {
@@ -164,8 +124,7 @@ export default function Historique() {
     const debutMois = formatDate(getMoisDebut(mois));
     const finMois = formatDate(getMoisFin(mois));
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let query: any = supabase
+    let query = supabase
       .from('plannings')
       .select('id, semaine_debut, statut, rayon_id, rayons(nom, departements(nom))')
       .gte('semaine_debut', debutMois)
@@ -188,9 +147,15 @@ export default function Historique() {
 
     const { data } = await query;
 
+    // Cf. Departements.tsx : les relations imbriquées (`rayons`, et `departements` à l'intérieur)
+    // sont déduites comme des tableaux par le générateur de types, alors que PostgREST renvoie un
+    // objet unique pour ces relations many-to-one.
+    type PlanningRayonRow = {
+      id: string; semaine_debut: string; statut: string; rayon_id: string;
+      rayons: { nom: string; departements: { nom: string } | null } | null;
+    };
     const items: SemainePlanning[] = await Promise.all(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (data ?? []).map(async (p: any) => {
+      ((data ?? []) as unknown as PlanningRayonRow[]).map(async (p) => {
         const { count } = await supabase.from('planning_lignes').select('id', { count: 'exact' }).eq('planning_id', p.id);
         return {
           id: p.id,
@@ -318,9 +283,9 @@ export default function Historique() {
     const headers = ['Collaborateur', 'Prénom', ...jours.map((j, i) => `${JOURS[i]} ${formatDisplay(j)}`), 'Travail', 'Repos/Congé', 'Absences'];
     const rows = detail.collaborateurs.map(c => {
       const postes = jours.map(j => detail.grille[c.id]?.[formatDate(j)] ?? 'R');
-      const travail = postes.filter(p => ['M', 'T', 'S', 'HN'].includes(p)).length;
-      const repos = postes.filter(p => ['R', 'C'].includes(p)).length;
-      const absences = postes.filter(p => ['MAL', 'AT', 'FOR'].includes(p)).length;
+      const travail = postes.filter(estTravail).length;
+      const repos = postes.filter(estRepos).length;
+      const absences = postes.filter(estAbsence).length;
       return [c.nom, c.prenom, ...postes, travail, repos, absences];
     });
     const wsData = [

@@ -4,33 +4,13 @@ import { supabase } from '../lib/supabase';
 import { purgerLignesOrphelines } from '../lib/planningLignes';
 import { useAuth } from '../context/AuthContext';
 import { useAssistant } from '../context/AssistantContext';
+import { useToast } from '../context/ToastContext';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 import { getLundi, addDays, formatDate, formatDisplay, formatDisplayLong, getNumeroSemaine, JOURS } from '../lib/dates';
+import { type Poste, POSTES_CYCLE, POSTES_SPECIAUX, POSTES_TOUS, POSTE_STYLE, POSTE_LABEL, POSTE_FILL } from '../lib/postes';
 
-type Poste = 'M' | 'T' | 'S' | 'R' | 'C' | 'HN' | 'MAL' | 'AT' | 'FOR';
 type TabType = 'permanence' | 'direction';
-
-const POSTES_CYCLE: Poste[] = ['M', 'T', 'S', 'R', 'C'];
-const POSTES_SPECIAUX: Poste[] = ['HN', 'MAL', 'AT', 'FOR'];
-const POSTES_TOUS: Poste[] = ['M', 'T', 'S', 'R', 'C', 'HN', 'MAL', 'AT', 'FOR'];
-
-const POSTE_STYLE: Record<Poste, string> = {
-  M:   'bg-amber-100 text-amber-800 border-amber-300',
-  T:   'bg-blue-100 text-blue-800 border-blue-300',
-  S:   'bg-indigo-100 text-indigo-800 border-indigo-300',
-  R:   'bg-gray-100 text-gray-500 border-gray-300',
-  C:   'bg-emerald-100 text-emerald-800 border-emerald-300',
-  HN:  'bg-teal-100 text-teal-800 border-teal-300',
-  MAL: 'bg-rose-100 text-rose-800 border-rose-300',
-  AT:  'bg-red-100 text-red-800 border-red-300',
-  FOR: 'bg-violet-100 text-violet-800 border-violet-300',
-};
-
-const POSTE_LABEL: Record<Poste, string> = {
-  M: 'Matin', T: 'Tranche', S: 'Soir', R: 'Repos', C: 'Congé',
-  HN: 'Horaire Normal', MAL: 'Maladie', AT: 'Accident Travail', FOR: 'Formation',
-};
 
 // Structure des créneaux de permanence (les horaires sont configurables, voir état `horaires`)
 const CRENEAU_LABEL: Record<'M' | 'T' | 'S', string> = { M: 'Matin', T: 'Tranche', S: 'Soir' };
@@ -45,11 +25,6 @@ const HORAIRES_DEFAUT: Record<'M' | 'T' | 'S', { debut: string; fin: string }> =
   M: { debut: '07:00', fin: '14:30' },
   T: { debut: '14:30', fin: '22:00' },
   S: { debut: '15:30', fin: '23:00' },
-};
-
-const POSTE_FILL: Record<Poste, [number, number, number]> = {
-  M: [254, 243, 199], T: [219, 234, 254], S: [224, 231, 255], R: [243, 244, 246], C: [209, 250, 229],
-  HN: [204, 251, 241], MAL: [255, 228, 230], AT: [254, 226, 226], FOR: [237, 233, 254],
 };
 
 const LONG_PRESS_MS = 500;
@@ -67,6 +42,7 @@ type Grille = Record<string, Record<string, Poste>>;
 export default function PlanningDirection() {
   const { profile } = useAuth();
   const { runCheck } = useAssistant();
+  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<TabType>('permanence');
   const [semaine, setSemaine] = useState<Date>(getLundi(new Date()));
   const jours = Array.from({ length: 7 }, (_, i) => addDays(semaine, i));
@@ -153,8 +129,11 @@ export default function PlanningDirection() {
         .from('permanence_membres').select('collaborateur_id, collaborateurs(nom, prenom, rayons(nom))')
         .eq('planning_id', plan.id);
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const membres: Collaborateur[] = ((membresRaw ?? []) as any[]).map(m => ({
+      // Cf. Departements.tsx : `collaborateurs`/`rayons` sont déduits comme des tableaux par le
+      // générateur de types pour ces relations imbriquées, alors que PostgREST renvoie un objet
+      // unique (many-to-one).
+      type MembreRow = { collaborateur_id: string; collaborateurs: { nom: string; prenom: string; rayons: { nom: string } | null } | null };
+      const membres: Collaborateur[] = ((membresRaw ?? []) as unknown as MembreRow[]).map(m => ({
         id: m.collaborateur_id, nom: m.collaborateurs?.nom ?? '', prenom: m.collaborateurs?.prenom ?? '',
         rayonNom: m.collaborateurs?.rayons?.nom ?? '—',
       }));
@@ -181,11 +160,10 @@ export default function PlanningDirection() {
       .order('nom');
     if (error) {
       console.error('Erreur chargement collaborateurs (permanence) :', error);
-      alert(`Impossible de charger la liste des collaborateurs :\n${error.message}`);
+      toast.error(`Impossible de charger la liste des collaborateurs :\n${error.message}`);
       return;
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    setAllCollabs(((data ?? []) as any[]).map(c => ({ id: c.id, nom: c.nom, prenom: c.prenom, rayonNom: c.rayons?.nom ?? '—' })));
+    setAllCollabs(((data ?? []) as unknown as { id: string; nom: string; prenom: string; rayons: { nom: string } | null }[]).map(c => ({ id: c.id, nom: c.nom, prenom: c.prenom, rayonNom: c.rayons?.nom ?? '—' })));
   }
 
   async function ensurePermPlanning(): Promise<string | null> {
@@ -281,7 +259,7 @@ export default function PlanningDirection() {
       void runCheck(semaine);
     } catch (err: any) {
       console.error('[DEBUG permanence] Erreur sauvegarde :', err);
-      alert(`Erreur lors de la sauvegarde de la permanence :\n${err?.message ?? err}`);
+      toast.error(`Erreur lors de la sauvegarde de la permanence :\n${err?.message ?? err}`);
     } finally {
       setPermSaving(false);
     }
@@ -296,8 +274,7 @@ export default function PlanningDirection() {
       .from('collaborateurs').select('id, nom, prenom, departements(nom)')
       .eq('fonction', 'chef_departement').eq('actif', true).order('nom');
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const colsList: Collaborateur[] = ((cols ?? []) as any[]).map(c => ({
+    const colsList: Collaborateur[] = ((cols ?? []) as unknown as { id: string; nom: string; prenom: string; departements: { nom: string } | null }[]).map(c => ({
       id: c.id, nom: c.nom, prenom: c.prenom, depNom: c.departements?.nom ?? '—',
     }));
     setDirCollabs(colsList);
@@ -369,7 +346,7 @@ export default function PlanningDirection() {
       void runCheck(semaine);
     } catch (err: any) {
       console.error('[DEBUG direction] Erreur sauvegarde :', err);
-      alert(`Erreur lors de la sauvegarde du planning direction :\n${err?.message ?? err}`);
+      toast.error(`Erreur lors de la sauvegarde du planning direction :\n${err?.message ?? err}`);
     } finally {
       setDirSaving(false);
     }

@@ -4,49 +4,15 @@ import { supabase } from '../lib/supabase';
 import { purgerLignesOrphelines } from '../lib/planningLignes';
 import { useAuth } from '../context/AuthContext';
 import { useAssistant } from '../context/AssistantContext';
+import { useToast } from '../context/ToastContext';
+import { detecterAnomalies } from '../lib/anomalies';
 import { canAccessAdmin } from '../types';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 import { getLundi, addDays, formatDate, formatDisplay, formatDisplayLong, getNumeroSemaine, JOURS, JOURS_COURT } from '../lib/dates';
+import { type Poste, POSTES_CYCLE, POSTES_SPECIAUX, POSTES_TOUS, POSTE_STYLE, POSTE_LABEL, POSTE_FILL } from '../lib/postes';
 
-type Poste = 'M' | 'T' | 'S' | 'R' | 'C' | 'HN' | 'MAL' | 'AT' | 'FOR';
 type Statut = 'brouillon' | 'soumis_dept' | 'soumis_admin' | 'valide' | 'rejete';
-
-// Cycle rapide (clic simple)
-const POSTES_CYCLE: Poste[] = ['M', 'T', 'S', 'R', 'C'];
-// Codes spéciaux (accessibles via appui long)
-const POSTES_SPECIAUX: Poste[] = ['HN', 'MAL', 'AT', 'FOR'];
-// Tous les codes, pour le menu complet
-const POSTES_TOUS: Poste[] = ['M', 'T', 'S', 'R', 'C', 'HN', 'MAL', 'AT', 'FOR'];
-
-const POSTE_STYLE: Record<Poste, string> = {
-  M:   'bg-amber-100 text-amber-800 border-amber-300',
-  T:   'bg-blue-100 text-blue-800 border-blue-300',
-  S:   'bg-indigo-100 text-indigo-800 border-indigo-300',
-  R:   'bg-gray-100 text-gray-500 border-gray-300',
-  C:   'bg-emerald-100 text-emerald-800 border-emerald-300',
-  HN:  'bg-teal-100 text-teal-800 border-teal-300',
-  MAL: 'bg-rose-100 text-rose-800 border-rose-300',
-  AT:  'bg-red-100 text-red-800 border-red-300',
-  FOR: 'bg-violet-100 text-violet-800 border-violet-300',
-};
-
-const POSTE_LABEL: Record<Poste, string> = {
-  M: 'Matin', T: 'Tranche', S: 'Soir', R: 'Repos', C: 'Congé',
-  HN: 'Horaire Normal', MAL: 'Maladie', AT: 'Accident Travail', FOR: 'Formation',
-};
-
-const POSTE_FILL: Record<Poste, [number, number, number]> = {
-  M:   [254, 243, 199],
-  T:   [219, 234, 254],
-  S:   [224, 231, 255],
-  R:   [243, 244, 246],
-  C:   [209, 250, 229],
-  HN:  [204, 251, 241],
-  MAL: [255, 228, 230],
-  AT:  [254, 226, 226],
-  FOR: [237, 233, 254],
-};
 
 const LONG_PRESS_MS = 500;
 
@@ -70,6 +36,7 @@ type Grille = Record<string, Record<string, Poste>>;
 export default function Planning() {
   const { profile } = useAuth();
   const { runCheck } = useAssistant();
+  const { toast, confirmDialog } = useToast();
   const isAdmin = profile ? canAccessAdmin(profile.role) : false;
   const isChefDep = profile?.role === 'chef_departement';
   const isChefRayon = profile?.role === 'chef_rayon';
@@ -105,15 +72,14 @@ export default function Planning() {
   useEffect(() => { if (rayonId) loadPlanning(); }, [rayonId, semaine]);
 
   async function loadRayons() {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let query: any = supabase.from('rayons').select('id, nom, numero, departement_id, departements(nom)').order('nom');
+    let query = supabase.from('rayons').select('id, nom, numero, departement_id, departements(nom)').order('nom');
     if (profile?.role === 'chef_rayon' && profile.rayon_ids.length > 0) {
       query = query.in('id', profile.rayon_ids);
     } else if (isChefDep && (profile?.departement_ids?.length ?? 0) > 0) {
       query = query.in('departement_id', profile.departement_ids);
     }
     const { data } = await query;
-    const list = (data as Rayon[]) ?? [];
+    const list = (data ?? []) as unknown as Rayon[];
     setRayons(list);
     if (list.length === 1) {
       setRayonId(list[0].id);
@@ -240,7 +206,7 @@ export default function Planning() {
       void runCheck(semaine);
     } catch (err: any) {
       console.error('[DEBUG planning] Erreur sauvegarde :', err);
-      alert(`Erreur lors de la sauvegarde du planning :\n${err?.message ?? err}`);
+      toast.error(`Erreur lors de la sauvegarde du planning :\n${err?.message ?? err}`);
     } finally {
       setSaving(false);
     }
@@ -249,7 +215,14 @@ export default function Planning() {
   /** Recopie les postes de la semaine précédente (S-1) dans la grille courante, sans sauvegarder. */
   async function handleCopierSemainePrecedente() {
     if (readOnly || !rayonId) return;
-    if (planningId && !confirm('Remplacer la grille actuelle par celle de la semaine précédente ?\n(Rien n\'est enregistré tant que tu ne cliques pas sur Sauvegarder.)')) return;
+    if (planningId) {
+      const ok = await confirmDialog({
+        title: 'Remplacer la grille actuelle ?',
+        body: "La grille sera remplacée par celle de la semaine précédente. Rien n'est enregistré tant que tu ne cliques pas sur Sauvegarder.",
+        confirmLabel: 'Remplacer',
+      });
+      if (!ok) return;
+    }
     setCopying(true);
     try {
       const prevDebut = formatDate(addDays(semaine, -7));
@@ -257,7 +230,7 @@ export default function Planning() {
         .from('plannings').select('id')
         .eq('rayon_id', rayonId).eq('semaine_debut', prevDebut).maybeSingle();
       if (errPlan) throw errPlan;
-      if (!prevPlan) { alert('Aucun planning enregistré pour la semaine précédente.'); return; }
+      if (!prevPlan) { toast.info('Aucun planning enregistré pour la semaine précédente.'); return; }
 
       const { data: prevLignes, error: errLignes } = await supabase
         .from('planning_lignes').select('collaborateur_id, jour, poste')
@@ -279,22 +252,37 @@ export default function Planning() {
       setSaved(false);
     } catch (err: any) {
       console.error('[DEBUG planning] Erreur copie S-1 :', err);
-      alert(`Erreur lors de la copie :\n${err?.message ?? err}`);
+      toast.error(`Erreur lors de la copie :\n${err?.message ?? err}`);
     } finally {
       setCopying(false);
     }
   }
 
   async function handleSoumettre() {
-    if (!planningId) return;
+    if (!planningId || !profile) return;
     setSubmitting(true);
     try {
+      // Contrôle frais (pas l'état partagé de l'assistant, qui ne se met à jour qu'après une
+      // sauvegarde et peut donc être obsolète si le planning n'a pas été retouché cette session).
+      const toutesAnomalies = await detecterAnomalies(profile, semaine);
+      const collabIds = new Set(collaborateurs.map(c => c.id));
+      const bloquantes = toutesAnomalies.filter(a => a.gravite === 'bloquante' && collabIds.has(a.collaborateurId));
+      if (bloquantes.length > 0) {
+        const ok = await confirmDialog({
+          title: `${bloquantes.length} anomalie${bloquantes.length > 1 ? 's' : ''} bloquante${bloquantes.length > 1 ? 's' : ''} détectée${bloquantes.length > 1 ? 's' : ''}`,
+          body: bloquantes.map(a => a.message).join('\n\n') + '\n\nSoumettre quand même ?',
+          confirmLabel: 'Soumettre quand même',
+          danger: true,
+        });
+        if (!ok) { setSubmitting(false); return; }
+      }
+
       const { error } = await supabase.from('plannings').update({ statut: 'soumis_dept', commentaire: null }).eq('id', planningId);
       if (error) throw error;
       setPlanningStatut('soumis_dept');
     } catch (err: any) {
       console.error('[DEBUG planning] Erreur soumission :', err);
-      alert(`Erreur lors de la soumission du planning :\n${err?.message ?? err}`);
+      toast.error(`Erreur lors de la soumission du planning :\n${err?.message ?? err}`);
     } finally {
       setSubmitting(false);
     }
@@ -310,7 +298,7 @@ export default function Planning() {
       setPlanningCommentaire(null);
     } catch (err: any) {
       console.error('[DEBUG planning] Erreur reprise en brouillon :', err);
-      alert(`Erreur :\n${err?.message ?? err}`);
+      toast.error(`Erreur :\n${err?.message ?? err}`);
     } finally {
       setSubmitting(false);
     }

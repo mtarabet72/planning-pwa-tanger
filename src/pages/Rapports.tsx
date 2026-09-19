@@ -5,56 +5,13 @@ import { useAuth } from '../context/AuthContext';
 import { canAccessAdmin } from '../types';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
+import { getLundi, addDays, formatDate, formatDisplay, JOURS } from '../lib/dates';
+import { type Poste, POSTE_STYLE_FLAT as POSTE_STYLE, POSTE_LABEL, estTravail, estAbsence } from '../lib/postes';
 
-type Poste = 'M' | 'T' | 'S' | 'R' | 'C' | 'HN' | 'MAL' | 'AT' | 'FOR';
-
-const POSTE_STYLE: Record<Poste, string> = {
-  M:   'bg-amber-100 text-amber-800',
-  T:   'bg-blue-100 text-blue-800',
-  S:   'bg-indigo-100 text-indigo-800',
-  R:   'bg-gray-100 text-gray-500',
-  C:   'bg-emerald-100 text-emerald-800',
-  HN:  'bg-teal-100 text-teal-800',
-  MAL: 'bg-rose-100 text-rose-800',
-  AT:  'bg-red-100 text-red-800',
-  FOR: 'bg-violet-100 text-violet-800',
-};
-
-const POSTE_LABEL: Record<Poste, string> = {
-  M: 'Matin', T: 'Tranche', S: 'Soir', R: 'Repos', C: 'Congé',
-  HN: 'Horaire Normal', MAL: 'Maladie', AT: 'Accident Travail', FOR: 'Formation',
-};
-
-const JOURS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
-
-function formatDate(date: Date): string {
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, '0');
-  const dd = String(date.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-function formatDisplay(date: Date): string {
-  return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
-}
-
+// Variante longue AVEC le nom du jour (spécifique aux rapports quotidiens) — différente de
+// formatDisplayLong de lib/dates.ts qui ne l'inclut pas, donc gardée locale intentionnellement.
 function formatDisplayLong(date: Date): string {
   return date.toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
-}
-
-function getLundi(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function addDays(date: Date, n: number): Date {
-  const d = new Date(date);
-  d.setDate(d.getDate() + n);
-  return d;
 }
 
 function getMonth(date: Date): { debut: Date; fin: Date } {
@@ -124,8 +81,7 @@ export default function Rapports() {
   }
 
   async function loadJournalier() {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let rayQuery: any = supabase.from('rayons').select('id, nom, departement_id').eq('actif', true).order('nom');
+    let rayQuery = supabase.from('rayons').select('id, nom, departement_id').eq('actif', true).order('nom');
     if (profile?.role === 'chef_rayon' && profile.rayon_ids.length > 0) rayQuery = rayQuery.in('id', profile.rayon_ids);
     else if (isChefDep && (profile?.departement_ids?.length ?? 0) > 0) rayQuery = rayQuery.in('departement_id', profile!.departement_ids);
     else if (filterDep) rayQuery = rayQuery.eq('departement_id', filterDep);
@@ -162,19 +118,20 @@ export default function Rapports() {
   }
 
   async function loadHebdo() {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let rayQuery: any = supabase.from('rayons').select('id, nom, departements(nom)').eq('actif', true).order('nom');
+    let rayQuery = supabase.from('rayons').select('id, nom, departements(nom)').eq('actif', true).order('nom');
     if (profile?.role === 'chef_rayon' && profile.rayon_ids.length > 0) rayQuery = rayQuery.in('id', profile.rayon_ids);
     else if (isChefDep && (profile?.departement_ids?.length ?? 0) > 0) rayQuery = rayQuery.in('departement_id', profile!.departement_ids);
     else if (filterDep) rayQuery = rayQuery.eq('departement_id', filterDep);
-    const { data: rayons } = await rayQuery;
-    if (!rayons?.length) { setHebdoData([]); return; }
+    const { data: rayonsRaw } = await rayQuery;
+    if (!rayonsRaw?.length) { setHebdoData([]); return; }
+    // Cf. Departements.tsx : `departements` est déduit comme un tableau par le générateur de
+    // types pour cette relation imbriquée, alors que PostgREST renvoie un objet unique.
+    const rayons = rayonsRaw as unknown as { id: string; nom: string; departements: { nom: string } | null }[];
 
     const debut = formatDate(semaine);
     const result: SemaineLigne[] = [];
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const rayon of rayons as any[]) {
+    for (const rayon of rayons) {
       const { data: plan } = await supabase
         .from('plannings').select('id').eq('rayon_id', rayon.id).eq('semaine_debut', debut).single();
 
@@ -208,8 +165,7 @@ export default function Rapports() {
     const [year, month] = mois.split('-').map(Number);
     const { debut, fin } = getMonth(new Date(year, month - 1, 1));
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let colQuery: any = supabase.from('collaborateurs').select('id, nom, prenom, rayon_id, rayons(nom)').eq('actif', true).neq('fonction', 'chef_rayon').order('nom');
+    let colQuery = supabase.from('collaborateurs').select('id, nom, prenom, rayon_id, rayons(nom)').eq('actif', true).neq('fonction', 'chef_rayon').order('nom');
     if (profile?.role === 'chef_rayon' && profile.rayon_ids.length > 0) {
       colQuery = colQuery.in('rayon_id', profile.rayon_ids);
     } else if (isChefDep && (profile?.departement_ids?.length ?? 0) > 0) {
@@ -219,20 +175,20 @@ export default function Rapports() {
       const { data: rays } = await supabase.from('rayons').select('id').eq('departement_id', filterDep);
       colQuery = colQuery.in('rayon_id', (rays ?? []).map((r: { id: string }) => r.id));
     }
-    const { data: cols } = await colQuery;
-    if (!cols?.length) { setMoisData([]); return; }
+    const { data: colsRaw } = await colQuery;
+    if (!colsRaw?.length) { setMoisData([]); return; }
+    const cols = colsRaw as unknown as { id: string; nom: string; prenom: string; rayons: { nom: string } | null }[];
 
     const { data: lignes } = await supabase
       .from('planning_lignes').select('collaborateur_id, poste, jour')
       .gte('jour', formatDate(debut)).lte('jour', formatDate(fin));
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result: MoisLigne[] = (cols as any[]).map(c => {
+    const result: MoisLigne[] = cols.map(c => {
       const cLignes = (lignes ?? []).filter((l: { collaborateur_id: string }) => l.collaborateur_id === c.id);
-      const travail = cLignes.filter((l: { poste: string }) => ['M', 'T', 'S', 'HN'].includes(l.poste)).length;
+      const travail = cLignes.filter((l: { poste: string }) => estTravail(l.poste)).length;
       const repos = cLignes.filter((l: { poste: string }) => l.poste === 'R').length;
       const conge = cLignes.filter((l: { poste: string }) => l.poste === 'C').length;
-      const absences = cLignes.filter((l: { poste: string }) => ['MAL', 'AT', 'FOR'].includes(l.poste)).length;
+      const absences = cLignes.filter((l: { poste: string }) => estAbsence(l.poste)).length;
       return {
         nom: c.nom,
         prenom: c.prenom,
@@ -583,7 +539,7 @@ export default function Rapports() {
                         </thead>
                         <tbody className="divide-y divide-gray-50">
                           {rayon.collaborateurs.map((c, i) => {
-                            const travail = c.postes.filter(p => ['M', 'T', 'S', 'HN'].includes(p)).length;
+                            const travail = c.postes.filter(estTravail).length;
                             return (
                               <tr key={i} className="hover:bg-gray-50">
                                 <td className="px-4 py-2 font-medium">{c.nom} <span className="text-gray-400 font-normal">{c.prenom}</span></td>

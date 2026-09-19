@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { Users, Calendar, BarChart3, TrendingUp, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { getLundiIso } from '../lib/dates';
+import { type Poste, POSTE_LABEL } from '../lib/postes';
 
 interface Stats {
   totalCollaborateurs: number;
@@ -33,26 +35,10 @@ function StatCard({ label, value, sub, color, icon: Icon }: {
   );
 }
 
-const POSTE_LABEL: Record<string, string> = {
-  M: 'Matin', T: 'Tranche', S: 'Soir', R: 'Repos', C: 'Congé',
-  HN: 'Horaire Normal', MAL: 'Maladie', AT: 'Accident Travail', FOR: 'Formation',
-};
-
 const POSTE_COLOR: Record<string, string> = {
   M: 'bg-amber-400', T: 'bg-blue-400', S: 'bg-indigo-400', R: 'bg-gray-300', C: 'bg-emerald-400',
   HN: 'bg-teal-400', MAL: 'bg-rose-400', AT: 'bg-red-400', FOR: 'bg-violet-400',
 };
-
-function getLundi(date: Date): string {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
 
 export default function Dashboard() {
   const { profile } = useAuth();
@@ -64,7 +50,7 @@ export default function Dashboard() {
 
   async function loadStats() {
     setLoading(true);
-    const semaineCourante = getLundi(new Date());
+    const semaineCourante = getLundiIso(new Date());
 
     let rayonIds: string[] = [];
     if (isChefDep && (profile?.departement_ids?.length ?? 0) > 0) {
@@ -73,16 +59,16 @@ export default function Dashboard() {
       rayonIds = (rays ?? []).map((r: { id: string }) => r.id);
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let colQuery: any = supabase.from('collaborateurs').select('id, actif, rayon_id, rayons(nom)');
+    let colQuery = supabase.from('collaborateurs').select('id, actif, rayon_id, rayons(nom)');
     if (profile?.role === 'chef_rayon' && profile.rayon_ids.length > 0) {
       colQuery = colQuery.in('rayon_id', profile.rayon_ids);
     } else if (isChefDep && rayonIds.length > 0) {
       colQuery = colQuery.in('rayon_id', rayonIds);
     }
     const { data: colsRaw } = await colQuery;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const cols: any[] = colsRaw ?? [];
+    // Cf. Departements.tsx : `rayons` est déduit comme un tableau par le générateur de types pour
+    // cette relation imbriquée, alors que PostgREST renvoie un objet unique (many-to-one).
+    const cols = (colsRaw ?? []) as unknown as { id: string; actif: boolean; rayon_id: string | null; rayons: { nom: string } | null }[];
 
     const totalCollaborateurs = cols.length;
     const collaborateursActifs = cols.filter(c => c.actif).length;
@@ -96,8 +82,7 @@ export default function Dashboard() {
     }
     const rayonsActifs = Object.values(rayonMap).sort((a, b) => b.nb - a.nb).slice(0, 5);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let planQuery: any = supabase.from('plannings').select('id', { count: 'exact' }).eq('semaine_debut', semaineCourante);
+    let planQuery = supabase.from('plannings').select('id', { count: 'exact' }).eq('semaine_debut', semaineCourante);
     if (profile?.role === 'chef_rayon' && profile.rayon_ids.length > 0) {
       planQuery = planQuery.in('rayon_id', profile.rayon_ids);
     } else if (isChefDep && rayonIds.length > 0) {
@@ -105,8 +90,7 @@ export default function Dashboard() {
     }
     const { count: planningsCount } = await planQuery;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let rayonsQuery: any = supabase.from('rayons').select('id', { count: 'exact' }).eq('actif', true);
+    let rayonsQuery = supabase.from('rayons').select('id', { count: 'exact' }).eq('actif', true);
     if (isChefDep && (profile?.departement_ids?.length ?? 0) > 0) {
       rayonsQuery = rayonsQuery.in('departement_id', profile!.departement_ids);
     } else if (profile?.role === 'chef_rayon' && profile.rayon_ids.length > 0) {
@@ -120,8 +104,7 @@ export default function Dashboard() {
       .eq('plannings.semaine_debut', semaineCourante);
 
     const repartition: Record<string, number> = { M: 0, T: 0, S: 0, R: 0, C: 0, HN: 0, MAL: 0, AT: 0, FOR: 0 };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const l of (lignesRaw ?? []) as any[]) {
+    for (const l of (lignesRaw ?? []) as { poste: string }[]) {
       if (repartition[l.poste] !== undefined) repartition[l.poste]++;
     }
 
@@ -178,7 +161,7 @@ export default function Dashboard() {
                 return (
                   <div key={poste}>
                     <div className="flex justify-between text-xs mb-1">
-                      <span className="font-medium text-gray-700">{POSTE_LABEL[poste]} ({poste})</span>
+                      <span className="font-medium text-gray-700">{POSTE_LABEL[poste as Poste]} ({poste})</span>
                       <span className="text-gray-500">{nb} — {pct}%</span>
                     </div>
                     <div className="h-2 bg-gray-100 rounded-full overflow-hidden">

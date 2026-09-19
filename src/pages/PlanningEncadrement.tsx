@@ -4,40 +4,15 @@ import { supabase } from '../lib/supabase';
 import { purgerLignesOrphelines } from '../lib/planningLignes';
 import { useAuth } from '../context/AuthContext';
 import { useAssistant } from '../context/AssistantContext';
+import { useToast } from '../context/ToastContext';
 import { canAccessAdmin } from '../types';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 import { getLundi, addDays, formatDate, formatDisplay, formatDisplayLong, getNumeroSemaine, JOURS } from '../lib/dates';
+import { type Poste, POSTES_CYCLE, POSTES_SPECIAUX, POSTES_TOUS, POSTE_STYLE, POSTE_LABEL, POSTE_FILL } from '../lib/postes';
 
-type Poste = 'M' | 'T' | 'S' | 'R' | 'C' | 'HN' | 'MAL' | 'AT' | 'FOR';
 type Fonction = 'employe' | 'chef_rayon' | 'assistante' | 'chef_departement';
 type StatutEnc = 'brouillon' | 'soumis' | 'valide' | 'rejete';
-
-const POSTES_CYCLE: Poste[] = ['M', 'T', 'S', 'R', 'C'];
-const POSTES_SPECIAUX: Poste[] = ['HN', 'MAL', 'AT', 'FOR'];
-const POSTES_TOUS: Poste[] = ['M', 'T', 'S', 'R', 'C', 'HN', 'MAL', 'AT', 'FOR'];
-
-const POSTE_STYLE: Record<Poste, string> = {
-  M:   'bg-amber-100 text-amber-800 border-amber-300',
-  T:   'bg-blue-100 text-blue-800 border-blue-300',
-  S:   'bg-indigo-100 text-indigo-800 border-indigo-300',
-  R:   'bg-gray-100 text-gray-500 border-gray-300',
-  C:   'bg-emerald-100 text-emerald-800 border-emerald-300',
-  HN:  'bg-teal-100 text-teal-800 border-teal-300',
-  MAL: 'bg-rose-100 text-rose-800 border-rose-300',
-  AT:  'bg-red-100 text-red-800 border-red-300',
-  FOR: 'bg-violet-100 text-violet-800 border-violet-300',
-};
-
-const POSTE_LABEL: Record<Poste, string> = {
-  M: 'Matin', T: 'Tranche', S: 'Soir', R: 'Repos', C: 'Congé',
-  HN: 'Horaire Normal', MAL: 'Maladie', AT: 'Accident Travail', FOR: 'Formation',
-};
-
-const POSTE_FILL: Record<Poste, [number, number, number]> = {
-  M: [254, 243, 199], T: [219, 234, 254], S: [224, 231, 255], R: [243, 244, 246], C: [209, 250, 229],
-  HN: [204, 251, 241], MAL: [255, 228, 230], AT: [254, 226, 226], FOR: [237, 233, 254],
-};
 
 const FONCTION_LABEL: Record<Fonction, string> = {
   employe: 'Employé', chef_rayon: 'Chef de Rayon', assistante: 'Assistante', chef_departement: 'Chef de Département',
@@ -65,6 +40,7 @@ type Grille = Record<string, Record<string, Poste>>;
 export default function PlanningEncadrement() {
   const { profile } = useAuth();
   const { runCheck } = useAssistant();
+  const { toast } = useToast();
   const isAdmin = profile ? canAccessAdmin(profile.role) : false;
   const isChefDep = profile?.role === 'chef_departement';
 
@@ -131,8 +107,9 @@ export default function PlanningEncadrement() {
       .order('fonction')
       .order('nom');
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const colsList: Collaborateur[] = ((cols ?? []) as any[]).map(c => ({
+        // Cf. Departements.tsx : `rayons` est déduit comme un tableau par le générateur de types,
+    // alors que PostgREST renvoie un objet unique pour cette relation many-to-one.
+    const colsList: Collaborateur[] = ((cols ?? []) as unknown as { id: string; nom: string; prenom: string; fonction: Fonction; rayons: { nom: string } | null }[]).map(c => ({
       id: c.id, nom: c.nom, prenom: c.prenom, fonction: c.fonction, rayonNom: c.rayons?.nom ?? '—',
     }));
     setCollaborateurs(colsList);
@@ -237,7 +214,7 @@ export default function PlanningEncadrement() {
       void runCheck(semaine);
     } catch (err: any) {
       console.error('[DEBUG planning encadrement] Erreur sauvegarde :', err);
-      alert(`Erreur lors de la sauvegarde du planning :\n${err?.message ?? err}`);
+      toast.error(`Erreur lors de la sauvegarde du planning :\n${err?.message ?? err}`);
     } finally {
       setSaving(false);
     }
@@ -255,7 +232,7 @@ export default function PlanningEncadrement() {
       setPlanningCommentaire(null);
     } catch (err: any) {
       console.error('[DEBUG planning encadrement] Erreur soumission :', err);
-      alert(`Erreur lors de la soumission :\n${err?.message ?? err}`);
+      toast.error(`Erreur lors de la soumission :\n${err?.message ?? err}`);
     } finally {
       setSubmitting(false);
     }
@@ -272,7 +249,7 @@ export default function PlanningEncadrement() {
       setPlanningCommentaire(null);
     } catch (err: any) {
       console.error('[DEBUG planning encadrement] Erreur reprise :', err);
-      alert(`Erreur :\n${err?.message ?? err}`);
+      toast.error(`Erreur :\n${err?.message ?? err}`);
     } finally {
       setSubmitting(false);
     }
