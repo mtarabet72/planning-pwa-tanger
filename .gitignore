@@ -12,3 +12,4 @@ dist-ssr
 .vscode/*
 .idea
 .DS_Store
+supabase/.temp/
