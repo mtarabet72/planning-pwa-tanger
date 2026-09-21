@@ -90,6 +90,7 @@ function AppShell() {
   const bottomNav = estAccueil
     ? ([
         { id: 'consolidation', label: 'Consolidation', icon: LayoutGrid },
+        { id: 'reports', label: 'Rapports', icon: FileText },
         { id: 'profil', label: 'Profil', icon: User },
       ] as const)
     : ([
@@ -314,13 +315,11 @@ function AppShell() {
                   <span className="text-xs font-medium text-gray-700">Admin</span>
                 </button>
               )}
-              {!estAccueil && (
-                <button onClick={() => handleNav('reports')}
-                  className={`flex flex-col items-center gap-2 p-4 rounded-2xl border transition ${activeTab === 'reports' ? 'bg-blue-50 border-blue-200' : 'border-gray-100 hover:bg-gray-50'}`}>
-                  <FileText className="w-6 h-6 text-emerald-600" />
-                  <span className="text-xs font-medium text-gray-700">Rapports</span>
-                </button>
-              )}
+              <button onClick={() => handleNav('reports')}
+                className={`flex flex-col items-center gap-2 p-4 rounded-2xl border transition ${activeTab === 'reports' ? 'bg-blue-50 border-blue-200' : 'border-gray-100 hover:bg-gray-50'}`}>
+                <FileText className="w-6 h-6 text-emerald-600" />
+                <span className="text-xs font-medium text-gray-700">Rapports</span>
+              </button>
               <button onClick={() => handleNav('profil')}
                 className={`flex flex-col items-center gap-2 p-4 rounded-2xl border transition ${activeTab === 'profil' ? 'bg-blue-50 border-blue-200' : 'border-gray-100 hover:bg-gray-50'}`}>
                 <User className="w-6 h-6 text-gray-600" />
@@ -412,7 +411,7 @@ function AppShell() {
             <Route path="/validation" element={estAccueil ? <Navigate to="/consolidation" replace /> : <Validation />} />
             <Route path="/historique" element={estAccueil ? <Navigate to="/consolidation" replace /> : <Historique />} />
             <Route path="/consolidation" element={(isAdmin || isChefDep || estAccueil) ? <Consolidation /> : <Navigate to="/dashboard" replace />} />
-            <Route path="/reports" element={estAccueil ? <Navigate to="/consolidation" replace /> : <Rapports />} />
+            <Route path="/reports" element={<Rapports />} />
             <Route path="/profil" element={<Profil />} />
             <Route path="/admin" element={isAdmin ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

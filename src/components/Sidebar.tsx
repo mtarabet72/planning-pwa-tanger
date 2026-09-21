@@ -19,7 +19,7 @@ interface SidebarProps {
   onSignOut: () => void;
   isAdmin: boolean;
   isChefDep: boolean;
-  /** Rôle "accueil" : ne voit que l'écran Consolidation (lecture seule). */
+  /** Rôle "accueil" : ne voit que Consolidation et Rapports (lecture seule). */
   isAccueil: boolean;
   fullName: string;
   role: Role;
@@ -49,8 +49,8 @@ export default function Sidebar({ activeTab, onNav, onSignOut, isAdmin, isChefDe
         <nav className="space-y-1">
           {MENU_ITEMS.map((item) => {
             if (isAccueil) {
-              // Un compte accueil ne voit que la Consolidation, en lecture seule.
-              if (item.id !== 'consolidation') return null;
+              // Un compte accueil ne voit que la Consolidation et les Rapports, en lecture seule.
+              if (item.id !== 'consolidation' && item.id !== 'reports') return null;
             } else {
               if ('adminOnly' in item && item.adminOnly && !isAdmin) return null;
               if ('depOnly' in item && item.depOnly && !isAdmin && !isChefDep) return null;
