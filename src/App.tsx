@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { Users, Calendar, BarChart3, FileText, Settings, LogOut, Loader2, X, UserCog, LayoutGrid, Building2, User, Bell, ClipboardCheck, History, MoreHorizontal, Users2, Crown, Trash2 } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import Login from './pages/Login';
@@ -43,10 +44,29 @@ function FullScreenMessage({ title, body, onSignOut }: { title: string; body: st
   );
 }
 
+type AdminSection = 'menu' | 'collaborateurs' | 'utilisateurs' | 'rayons' | 'departements' | 'reinitialisation';
+
+/** Déduit l'onglet actif à partir du chemin d'URL (ex. "/admin/rayons" -> "admin"). */
+function tabFromPath(pathname: string): Tab {
+  const segment = pathname.replace(/^\/+/, '').split('/')[0];
+  const tabs: Tab[] = ['dashboard', 'planning', 'encadrement', 'direction', 'validation', 'historique', 'consolidation', 'admin', 'reports', 'profil'];
+  return (tabs as string[]).includes(segment) ? (segment as Tab) : 'dashboard';
+}
+
+/** Déduit la sous-section Administration active à partir du chemin d'URL (ex. "/admin/rayons" -> "rayons"). */
+function adminSectionFromPath(pathname: string): AdminSection {
+  const parts = pathname.replace(/^\/+/, '').split('/');
+  const sections: AdminSection[] = ['collaborateurs', 'utilisateurs', 'rayons', 'departements', 'reinitialisation'];
+  const sub = parts[1];
+  return (sections as string[]).includes(sub) ? (sub as AdminSection) : 'menu';
+}
+
 function AppShell() {
   const { profile, signOut } = useAuth();
-  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
-  const [adminSection, setAdminSection] = useState<'menu' | 'collaborateurs' | 'utilisateurs' | 'rayons' | 'departements' | 'reinitialisation'>('menu');
+  const navigate = useNavigate();
+  const location = useLocation();
+  const activeTab = tabFromPath(location.pathname);
+  const adminSection = adminSectionFromPath(location.pathname);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -80,9 +100,8 @@ function AppShell() {
     });
   }
 
-  function handleNav(id: typeof activeTab) {
-    setActiveTab(id);
-    setAdminSection('menu');
+  function handleNav(id: Tab) {
+    navigate('/' + id);
     setSidebarOpen(false);
     setShowNotifications(false);
     setShowMore(false);
@@ -347,7 +366,7 @@ function AppShell() {
           <header className="hidden lg:flex items-center justify-between mb-8">
             <div className="flex items-center gap-2">
               {activeTab === 'admin' && adminSection !== 'menu' && (
-                <button onClick={() => setAdminSection('menu')} className="p-2 hover:bg-gray-100 rounded-xl text-gray-500 text-lg">←</button>
+                <button onClick={() => navigate('/admin')} className="p-2 hover:bg-gray-100 rounded-xl text-gray-500 text-lg">←</button>
               )}
               <div>
                 <h2 className="text-3xl font-bold text-gray-900">{pageTitle[activeTab]}</h2>
@@ -376,59 +395,58 @@ function AppShell() {
             </div>
           )}
 
-          {activeTab === 'dashboard' && <Dashboard />}
-          {activeTab === 'planning' && <Planning />}
-          {activeTab === 'encadrement' && (isAdmin || isChefDep) && <PlanningEncadrement />}
-          {activeTab === 'direction' && isAdmin && <PlanningDirection />}
-          {activeTab === 'validation' && <Validation />}
-          {activeTab === 'historique' && <Historique />}
-          {activeTab === 'consolidation' && (isAdmin || isChefDep) && <Consolidation />}
-          {activeTab === 'reports' && <Rapports />}
-          {activeTab === 'profil' && <Profil />}
-
-          {activeTab === 'admin' && isAdmin && (
-            <>
-              {adminSection === 'menu' && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <button onClick={() => setAdminSection('utilisateurs')} className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
-                    <UserCog className="w-8 h-8 mb-3 text-purple-600" />
-                    <div className="font-semibold">Utilisateurs</div>
-                    <div className="text-xs text-gray-500 mt-1">Créer et gérer les comptes</div>
-                  </button>
-                  <button onClick={() => setAdminSection('collaborateurs')} className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
-                    <Users className="w-8 h-8 mb-3 text-blue-600" />
-                    <div className="font-semibold">Collaborateurs</div>
-                    <div className="text-xs text-gray-500 mt-1">Ajouter, modifier, supprimer</div>
-                  </button>
-                  <button onClick={() => setShowImport(true)} className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
-                    <FileText className="w-8 h-8 mb-3 text-emerald-600" />
-                    <div className="font-semibold">Import Excel</div>
-                    <div className="text-xs text-gray-500 mt-1">Importer depuis un fichier .xlsx</div>
-                  </button>
-                  <button onClick={() => setAdminSection('rayons')} className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
-                    <Settings className="w-8 h-8 mb-3 text-amber-600" />
-                    <div className="font-semibold">Rayons</div>
-                    <div className="text-xs text-gray-500 mt-1">Gérer les rayons</div>
-                  </button>
-                  <button onClick={() => setAdminSection('departements')} className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
-                    <Building2 className="w-8 h-8 mb-3 text-purple-600" />
-                    <div className="font-semibold">Départements</div>
-                    <div className="text-xs text-gray-500 mt-1">Gérer les départements</div>
-                  </button>
-                  <button onClick={() => setAdminSection('reinitialisation')} className="p-6 bg-white border border-red-100 rounded-2xl hover:shadow-md hover:border-red-300 transition text-left sm:col-span-2">
-                    <Trash2 className="w-8 h-8 mb-3 text-red-600" />
-                    <div className="font-semibold text-red-700">Réinitialisation</div>
-                    <div className="text-xs text-gray-500 mt-1">Effacer comptes, collaborateurs et plannings pour repartir de zéro</div>
-                  </button>
-                </div>
-              )}
-              {adminSection === 'utilisateurs' && <Utilisateurs />}
-              {adminSection === 'collaborateurs' && <Collaborateurs />}
-              {adminSection === 'rayons' && <Rayons />}
-              {adminSection === 'departements' && <Departements />}
-              {adminSection === 'reinitialisation' && <Reinitialisation />}
-            </>
-          )}
+          <Routes>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/planning" element={<Planning />} />
+            <Route path="/encadrement" element={(isAdmin || isChefDep) ? <PlanningEncadrement /> : <Navigate to="/dashboard" replace />} />
+            <Route path="/direction" element={isAdmin ? <PlanningDirection /> : <Navigate to="/dashboard" replace />} />
+            <Route path="/validation" element={<Validation />} />
+            <Route path="/historique" element={<Historique />} />
+            <Route path="/consolidation" element={(isAdmin || isChefDep) ? <Consolidation /> : <Navigate to="/dashboard" replace />} />
+            <Route path="/reports" element={<Rapports />} />
+            <Route path="/profil" element={<Profil />} />
+            <Route path="/admin" element={isAdmin ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <button onClick={() => navigate('/admin/utilisateurs')} className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
+                  <UserCog className="w-8 h-8 mb-3 text-purple-600" />
+                  <div className="font-semibold">Utilisateurs</div>
+                  <div className="text-xs text-gray-500 mt-1">Créer et gérer les comptes</div>
+                </button>
+                <button onClick={() => navigate('/admin/collaborateurs')} className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
+                  <Users className="w-8 h-8 mb-3 text-blue-600" />
+                  <div className="font-semibold">Collaborateurs</div>
+                  <div className="text-xs text-gray-500 mt-1">Ajouter, modifier, supprimer</div>
+                </button>
+                <button onClick={() => setShowImport(true)} className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
+                  <FileText className="w-8 h-8 mb-3 text-emerald-600" />
+                  <div className="font-semibold">Import Excel</div>
+                  <div className="text-xs text-gray-500 mt-1">Importer depuis un fichier .xlsx</div>
+                </button>
+                <button onClick={() => navigate('/admin/rayons')} className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
+                  <Settings className="w-8 h-8 mb-3 text-amber-600" />
+                  <div className="font-semibold">Rayons</div>
+                  <div className="text-xs text-gray-500 mt-1">Gérer les rayons</div>
+                </button>
+                <button onClick={() => navigate('/admin/departements')} className="p-6 bg-white border border-gray-100 rounded-2xl hover:shadow-md hover:border-blue-200 transition text-left">
+                  <Building2 className="w-8 h-8 mb-3 text-purple-600" />
+                  <div className="font-semibold">Départements</div>
+                  <div className="text-xs text-gray-500 mt-1">Gérer les départements</div>
+                </button>
+                <button onClick={() => navigate('/admin/reinitialisation')} className="p-6 bg-white border border-red-100 rounded-2xl hover:shadow-md hover:border-red-300 transition text-left sm:col-span-2">
+                  <Trash2 className="w-8 h-8 mb-3 text-red-600" />
+                  <div className="font-semibold text-red-700">Réinitialisation</div>
+                  <div className="text-xs text-gray-500 mt-1">Effacer comptes, collaborateurs et plannings pour repartir de zéro</div>
+                </button>
+              </div>
+            ) : <Navigate to="/dashboard" replace />} />
+            <Route path="/admin/utilisateurs" element={isAdmin ? <Utilisateurs /> : <Navigate to="/dashboard" replace />} />
+            <Route path="/admin/collaborateurs" element={isAdmin ? <Collaborateurs /> : <Navigate to="/dashboard" replace />} />
+            <Route path="/admin/rayons" element={isAdmin ? <Rayons /> : <Navigate to="/dashboard" replace />} />
+            <Route path="/admin/departements" element={isAdmin ? <Departements /> : <Navigate to="/dashboard" replace />} />
+            <Route path="/admin/reinitialisation" element={isAdmin ? <Reinitialisation /> : <Navigate to="/dashboard" replace />} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
         </div>
       </div>
 
