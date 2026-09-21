@@ -38,6 +38,12 @@ export function getNumeroSemaine(date: Date): number {
 /** Renvoie le lundi de la semaine au format ISO (yyyy-mm-dd), pratique pour les requêtes Supabase. */
 export const getLundiIso = (date: Date) => formatDate(getLundi(date));
 
+/** Parse un identifiant ISO (yyyy-mm-dd) en Date locale à minuit, sans décalage de fuseau horaire. */
+export function parseDateIso(iso: string): Date {
+  const [yyyy, mm, dd] = iso.split('-').map(Number);
+  return new Date(yyyy, mm - 1, dd);
+}
+
 /** Format court jour/mois/année pour un identifiant ISO déjà connu (évite un aller-retour Date). */
 export function formatSemaineCourte(iso: string): string {
   const [yyyy, mm, dd] = iso.split('-');

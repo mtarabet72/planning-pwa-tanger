@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Save, Loader2, Plus, Printer, FileText, Send, X, Copy } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { purgerLignesOrphelines } from '../lib/planningLignes';
@@ -9,8 +10,10 @@ import { detecterAnomalies } from '../lib/anomalies';
 import { canAccessAdmin } from '../types';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
-import { getLundi, addDays, formatDate, formatDisplay, formatDisplayLong, getNumeroSemaine, JOURS, JOURS_COURT } from '../lib/dates';
-import { type Poste, POSTES_CYCLE, POSTES_SPECIAUX, POSTES_TOUS, POSTE_STYLE, POSTE_LABEL, POSTE_FILL } from '../lib/postes';
+import { getLundi, addDays, formatDate, formatDisplay, formatDisplayLong, getNumeroSemaine, parseDateIso, JOURS, JOURS_COURT } from '../lib/dates';
+import { type Poste, POSTES_CYCLE, POSTES_SPECIAUX, POSTES_TOUS, POSTE_STYLE, POSTE_LABEL, POSTE_FILL, estTravail, estRepos, estAbsence } from '../lib/postes';
+
+const SEMAINE_ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 type Statut = 'brouillon' | 'soumis_dept' | 'soumis_admin' | 'valide' | 'rejete';
 
@@ -41,7 +44,16 @@ export default function Planning() {
   const isChefDep = profile?.role === 'chef_departement';
   const isChefRayon = profile?.role === 'chef_rayon';
 
-  const [semaine, setSemaine] = useState<Date>(getLundi(new Date()));
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Lus une seule fois au montage (liens partageables) — les changements ultérieurs sont
+  // réappliqués vers l'URL par l'effet plus bas, pas l'inverse.
+  const [rayonParamInitial] = useState(() => searchParams.get('rayon'));
+  const [semaineParamInitial] = useState(() => {
+    const s = searchParams.get('semaine');
+    return s && SEMAINE_ISO_RE.test(s) ? s : null;
+  });
+
+  const [semaine, setSemaine] = useState<Date>(() => semaineParamInitial ? getLundi(parseDateIso(semaineParamInitial)) : getLundi(new Date()));
   const [rayons, setRayons] = useState<Rayon[]>([]);
   const [rayonId, setRayonId] = useState<string>('');
   const [rayonNom, setRayonNom] = useState<string>('');
@@ -71,6 +83,14 @@ export default function Planning() {
   useEffect(() => { loadRayons(); }, []);
   useEffect(() => { if (rayonId) loadPlanning(); }, [rayonId, semaine]);
 
+  // Garde l'URL synchronisée avec le rayon/la semaine affichés, pour que l'adresse dans la
+  // barre du navigateur reste copiable/partageable à tout moment (pas seulement au chargement).
+  useEffect(() => {
+    if (!rayonId) return;
+    setSearchParams({ rayon: rayonId, semaine: formatDate(semaine) }, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rayonId, semaine]);
+
   async function loadRayons() {
     let query = supabase.from('rayons').select('id, nom, numero, departement_id, departements(nom)').order('nom');
     if (profile?.role === 'chef_rayon' && profile.rayon_ids.length > 0) {
@@ -81,7 +101,11 @@ export default function Planning() {
     const { data } = await query;
     const list = (data ?? []) as unknown as Rayon[];
     setRayons(list);
-    if (list.length === 1) {
+    const depuisUrl = rayonParamInitial ? list.find(r => r.id === rayonParamInitial) : undefined;
+    if (depuisUrl) {
+      setRayonId(depuisUrl.id);
+      setRayonNom(depuisUrl.nom);
+    } else if (list.length === 1) {
       setRayonId(list[0].id);
       setRayonNom(list[0].nom);
     }
@@ -367,9 +391,9 @@ export default function Planning() {
     const headers = ['Collaborateur', 'Prénom', ...jours.map((j, i) => `${JOURS[i]} ${formatDisplay(j)}`), 'Travail', 'Repos/Congé', 'Absences'];
     const rows = collaborateurs.map(c => {
       const postes = jours.map(j => grille[c.id]?.[formatDate(j)] ?? 'R');
-      const travail = postes.filter(p => ['M', 'T', 'S', 'HN'].includes(p)).length;
-      const repos = postes.filter(p => ['R', 'C'].includes(p)).length;
-      const absences = postes.filter(p => ['MAL', 'AT', 'FOR'].includes(p)).length;
+      const travail = postes.filter(estTravail).length;
+      const repos = postes.filter(estRepos).length;
+      const absences = postes.filter(estAbsence).length;
       return [c.nom, c.prenom, ...postes, travail, repos, absences];
     });
     const wsData = [

@@ -8,6 +8,7 @@ import {
   getNumeroSemaine,
   getLundiIso,
   formatSemaineCourte,
+  parseDateIso,
   JOURS,
   JOURS_COURT,
 } from './dates';
@@ -131,6 +132,24 @@ describe('formatSemaineCourte', () => {
   });
 });
 
+describe('parseDateIso', () => {
+  it('reconstruit la bonne date locale à partir d\'un identifiant ISO', () => {
+    const d = parseDateIso('2026-09-14');
+    expect(d.getFullYear()).toBe(2026);
+    expect(d.getMonth()).toBe(8); // septembre = index 8
+    expect(d.getDate()).toBe(14);
+  });
+
+  it('est l\'inverse exact de formatDate (aller-retour)', () => {
+    expect(formatDate(parseDateIso('2026-01-05'))).toBe('2026-01-05');
+  });
+
+  it('ne subit aucun décalage de fuseau horaire (minuit local, pas UTC)', () => {
+    const d = parseDateIso('2026-12-31');
+    expect(d.getHours()).toBe(0);
+  });
+});
+
 describe('JOURS / JOURS_COURT', () => {
   it('contiennent 7 entrées chacun, dans le même ordre (Lundi -> Dimanche)', () => {
     expect(JOURS).toHaveLength(7);
@@ -143,4 +162,4 @@ describe('JOURS / JOURS_COURT', () => {
     expect(JOURS_COURT[0]).toBe('L');
     expect(JOURS_COURT[6]).toBe('D');
   });
-});
+});c
