@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Loader2, Printer, FileText, LayoutGrid } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { canAccessAdmin } from '../types';
+import { canAccessAdmin, isAccueil } from '../types';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 import { getLundi, addDays, formatDate, formatDisplay, formatDisplayLong, getNumeroSemaine, JOURS } from '../lib/dates';
@@ -65,16 +65,80 @@ interface PermanenceData {
   hasPlanning: boolean;
 }
 
+interface DirectionCollaborateur extends Collaborateur {
+  depNom: string;
+}
+
+interface DirectionData {
+  collaborateurs: DirectionCollaborateur[];
+  grille: Record<string, Record<string, Poste>>;
+  hasPlanning: boolean;
+}
+
 const FONCTION_LABEL: Record<string, string> = { chef_rayon: 'Chef de Rayon', assistante: 'Assistante' };
+
+interface GrilleRow { id: string; nom: string; prenom: string; sub?: string }
+
+/**
+ * Tableau de lecture seule (Collaborateur × jours) réutilisé pour les sections
+ * Encadrement / Permanence / Direction de l'écran Consolidation.
+ * Composant autonome : déclaré hors de Consolidation() pour éviter un remontage à chaque rendu.
+ */
+function GrilleTable({ rows, grille, jours }: { rows: GrilleRow[]; grille: Record<string, Record<string, Poste>>; jours: Date[] }) {
+  if (!rows.length) {
+    return <div className="p-6 text-center text-gray-400 text-sm">Aucun membre.</div>;
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead className="bg-gray-50 border-b border-gray-100">
+          <tr>
+            <th className="text-left px-4 py-3 font-medium text-gray-500 min-w-32">Collaborateur</th>
+            {jours.map((j, i) => (
+              <th key={i} className="text-center px-2 py-3 font-medium text-gray-500 min-w-12">
+                <div>{JOURS[i]}</div>
+                <div className="text-gray-400 font-normal">{formatDisplay(j)}</div>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-50">
+          {rows.map(c => (
+            <tr key={c.id} className="hover:bg-gray-50">
+              <td className="px-4 py-2">
+                <div className="font-medium">{c.nom}</div>
+                <div className="text-gray-400">{c.prenom}{c.sub ? ` — ${c.sub}` : ''}</div>
+              </td>
+              {jours.map((j, i) => {
+                const poste: Poste = grille[c.id]?.[formatDate(j)] ?? 'R';
+                return (
+                  <td key={i} className="px-1 py-2 text-center">
+                    <span className={`inline-flex items-center justify-center w-10 h-8 rounded-lg border font-bold ${
+                      poste.length > 1 ? 'text-[9px]' : 'text-xs'
+                    } ${POSTE_STYLE[poste]}`}>
+                      {poste}
+                    </span>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export default function Consolidation() {
   const { profile } = useAuth();
   const isAdmin = canAccessAdmin(profile?.role ?? 'chef_rayon');
+  const estAccueil = isAccueil(profile?.role ?? 'chef_rayon');
 
   const [semaine, setSemaine] = useState<Date>(getLundi(new Date()));
   const [rayonsData, setRayonsData] = useState<RayonData[]>([]);
   const [encadrementData, setEncadrementData] = useState<EncadrementData[]>([]);
   const [permanenceData, setPermanenceData] = useState<PermanenceData>({ membres: [], grille: {}, hasPlanning: false });
+  const [directionData, setDirectionData] = useState<DirectionData>({ collaborateurs: [], grille: {}, hasPlanning: false });
   const [activeRayon, setActiveRayon] = useState<string>('');
   const [activeDep, setActiveDep] = useState<string>('');
   const [depNomGlobal, setDepNomGlobal] = useState<string>('');
@@ -93,7 +157,7 @@ export default function Consolidation() {
       const { data: deps } = await supabase
         .from('departements').select('nom').in('id', profile!.departement_ids);
       setDepNomGlobal((deps ?? []).map((d: { nom: string }) => d.nom).join(', '));
-    } else if (isAdmin) {
+    } else if (isAdmin || estAccueil) {
       setDepNomGlobal('Tous les départements');
     }
 
@@ -221,6 +285,34 @@ export default function Consolidation() {
       }
     }
     setPermanenceData({ membres: permMembresList, grille: permGrilleObj, hasPlanning: !!permPlan });
+
+    // ---- Direction (Chefs de Département) — réservé à l'administrateur et au rôle accueil ----
+    if (isAdmin || estAccueil) {
+      const { data: dirCols } = await supabase
+        .from('collaborateurs').select('id, nom, prenom, departements(nom)')
+        .eq('fonction', 'chef_departement').eq('actif', true).order('nom');
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const dirColsList: DirectionCollaborateur[] = ((dirCols ?? []) as any[]).map(c => ({
+        id: c.id, nom: c.nom, prenom: c.prenom, depNom: c.departements?.nom ?? '—',
+      }));
+
+      const { data: dirPlan } = await supabase
+        .from('plannings_permanence').select('id').eq('type', 'direction').eq('semaine_debut', debut).single();
+
+      const dirGrilleObj: Record<string, Record<string, Poste>> = {};
+      if (dirPlan) {
+        const { data: dirLignes } = await supabase
+          .from('permanence_lignes').select('*').eq('planning_id', dirPlan.id);
+        for (const l of dirLignes ?? []) {
+          if (!dirGrilleObj[l.collaborateur_id]) dirGrilleObj[l.collaborateur_id] = {};
+          dirGrilleObj[l.collaborateur_id][l.jour] = l.poste as Poste;
+        }
+      }
+      setDirectionData({ collaborateurs: dirColsList, grille: dirGrilleObj, hasPlanning: !!dirPlan });
+    } else {
+      setDirectionData({ collaborateurs: [], grille: {}, hasPlanning: false });
+    }
 
     setLoading(false);
   }
@@ -467,7 +559,7 @@ export default function Consolidation() {
           </button>
         </div>
 
-        {rayonsData.length > 0 && (
+        {rayonsData.length > 0 && !estAccueil && (
           <div className="flex gap-2">
             <button
               onClick={handleExportPDF}
@@ -512,7 +604,9 @@ export default function Consolidation() {
         <div className="flex justify-center py-16">
           <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
         </div>
-      ) : rayonsData.length === 0 ? (
+      ) : (
+        <>
+        {rayonsData.length === 0 ? (
         <div className="bg-white rounded-2xl p-10 text-center text-gray-400 text-sm">
           <LayoutGrid className="w-8 h-8 mx-auto mb-3 opacity-30" />
           Aucun rayon trouvé sur ce périmètre.
@@ -615,6 +709,64 @@ export default function Consolidation() {
               )}
             </div>
           )}
+        </>
+        )}
+
+        {encadrementData.length > 0 && (
+          <div className="space-y-3">
+            <p className="text-sm font-semibold text-gray-700 px-1">Encadrement — Chefs de Rayon & Assistantes</p>
+            {encadrementData.map(enc => (
+              <div key={enc.departementId} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                  <span className="font-semibold text-gray-900">{enc.depNom}</span>
+                  {!enc.hasPlanning && (
+                    <span className="text-xs bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full">Aucun planning sauvegardé</span>
+                  )}
+                </div>
+                <GrilleTable
+                  rows={enc.collaborateurs.map(c => ({
+                    id: c.id, nom: c.nom, prenom: c.prenom,
+                    sub: `${FONCTION_LABEL[c.fonction] ?? c.fonction} · ${c.rayonNom}`,
+                  }))}
+                  grille={enc.grille}
+                  jours={jours}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {permanenceData.membres.length > 0 && (
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+              <span className="font-semibold text-gray-900">Permanence — Magasin</span>
+              {!permanenceData.hasPlanning && (
+                <span className="text-xs bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full">Aucun planning sauvegardé</span>
+              )}
+            </div>
+            <GrilleTable
+              rows={permanenceData.membres.map(c => ({ id: c.id, nom: c.nom, prenom: c.prenom, sub: c.rayonNom }))}
+              grille={permanenceData.grille}
+              jours={jours}
+            />
+          </div>
+        )}
+
+        {(isAdmin || estAccueil) && directionData.collaborateurs.length > 0 && (
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+              <span className="font-semibold text-gray-900">Direction — Chefs de Département</span>
+              {!directionData.hasPlanning && (
+                <span className="text-xs bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full">Aucun planning sauvegardé</span>
+              )}
+            </div>
+            <GrilleTable
+              rows={directionData.collaborateurs.map(c => ({ id: c.id, nom: c.nom, prenom: c.prenom, sub: c.depNom }))}
+              grille={directionData.grille}
+              jours={jours}
+            />
+          </div>
+        )}
         </>
       )}
     </div>
