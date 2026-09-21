@@ -20,7 +20,7 @@ import PlanningDirection from './pages/PlanningDirection';
 import Reinitialisation from './pages/Reinitialisation';
 import NouveauMotDePasse from './pages/NouveauMotDePasse';
 import Sidebar from './components/Sidebar';
-import { canAccessAdmin, type Tab } from './types';
+import { canAccessAdmin, isAccueil, type Tab } from './types';
 import { useNotifications } from './hooks/useNotifications';
 import { AssistantProvider } from './context/AssistantContext';
 import AssistantWidget from './components/AssistantWidget';
@@ -83,15 +83,21 @@ function AppShell() {
 
   const isAdmin = canAccessAdmin(profile.role);
   const isChefDep = profile.role === 'chef_departement';
+  const estAccueil = isAccueil(profile.role);
   const fullName = `${profile.prenom} ${profile.nom}`.trim();
 
 
-  const bottomNav = [
-    { id: 'dashboard', label: 'Accueil', icon: BarChart3 },
-    { id: 'planning', label: 'Planning', icon: Calendar },
-    { id: 'validation', label: 'Validation', icon: ClipboardCheck },
-    { id: 'historique', label: 'Historique', icon: History },
-  ] as const;
+  const bottomNav = estAccueil
+    ? ([
+        { id: 'consolidation', label: 'Consolidation', icon: LayoutGrid },
+        { id: 'profil', label: 'Profil', icon: User },
+      ] as const)
+    : ([
+        { id: 'dashboard', label: 'Accueil', icon: BarChart3 },
+        { id: 'planning', label: 'Planning', icon: Calendar },
+        { id: 'validation', label: 'Validation', icon: ClipboardCheck },
+        { id: 'historique', label: 'Historique', icon: History },
+      ] as const);
 
   function ouvrirNotifications() {
     setShowNotifications(v => {
@@ -294,7 +300,7 @@ function AppShell() {
                   <span className="text-xs font-medium text-gray-700">Permanence</span>
                 </button>
               )}
-              {(isAdmin || isChefDep) && (
+              {(isAdmin || isChefDep || estAccueil) && (
                 <button onClick={() => handleNav('consolidation')}
                   className={`flex flex-col items-center gap-2 p-4 rounded-2xl border transition ${activeTab === 'consolidation' ? 'bg-blue-50 border-blue-200' : 'border-gray-100 hover:bg-gray-50'}`}>
                   <LayoutGrid className="w-6 h-6 text-blue-600" />
@@ -308,11 +314,13 @@ function AppShell() {
                   <span className="text-xs font-medium text-gray-700">Admin</span>
                 </button>
               )}
-              <button onClick={() => handleNav('reports')}
-                className={`flex flex-col items-center gap-2 p-4 rounded-2xl border transition ${activeTab === 'reports' ? 'bg-blue-50 border-blue-200' : 'border-gray-100 hover:bg-gray-50'}`}>
-                <FileText className="w-6 h-6 text-emerald-600" />
-                <span className="text-xs font-medium text-gray-700">Rapports</span>
-              </button>
+              {!estAccueil && (
+                <button onClick={() => handleNav('reports')}
+                  className={`flex flex-col items-center gap-2 p-4 rounded-2xl border transition ${activeTab === 'reports' ? 'bg-blue-50 border-blue-200' : 'border-gray-100 hover:bg-gray-50'}`}>
+                  <FileText className="w-6 h-6 text-emerald-600" />
+                  <span className="text-xs font-medium text-gray-700">Rapports</span>
+                </button>
+              )}
               <button onClick={() => handleNav('profil')}
                 className={`flex flex-col items-center gap-2 p-4 rounded-2xl border transition ${activeTab === 'profil' ? 'bg-blue-50 border-blue-200' : 'border-gray-100 hover:bg-gray-50'}`}>
                 <User className="w-6 h-6 text-gray-600" />
@@ -329,7 +337,7 @@ function AppShell() {
       )}
 
       <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:w-72 lg:flex lg:flex-col bg-white border-r border-gray-200 shadow-xl z-40">
-        <Sidebar activeTab={activeTab} onNav={handleNav} onSignOut={() => void signOut()} isAdmin={isAdmin} isChefDep={isChefDep} fullName={fullName} role={profile.role} planningBadge={nbPlanningBadge} validationBadge={nbAValider} encadrementBadge={nbRejetesEnc} />
+        <Sidebar activeTab={activeTab} onNav={handleNav} onSignOut={() => void signOut()} isAdmin={isAdmin} isChefDep={isChefDep} isAccueil={estAccueil} fullName={fullName} role={profile.role} planningBadge={nbPlanningBadge} validationBadge={nbAValider} encadrementBadge={nbRejetesEnc} />
       </div>
 
       {sidebarOpen && (
@@ -339,7 +347,7 @@ function AppShell() {
             <button onClick={() => setSidebarOpen(false)} className="absolute top-4 right-4 p-2 rounded-xl hover:bg-gray-100">
               <X className="w-5 h-5" />
             </button>
-            <Sidebar activeTab={activeTab} onNav={handleNav} onSignOut={() => void signOut()} isAdmin={isAdmin} isChefDep={isChefDep} fullName={fullName} role={profile.role} planningBadge={nbPlanningBadge} validationBadge={nbAValider} encadrementBadge={nbRejetesEnc} />
+            <Sidebar activeTab={activeTab} onNav={handleNav} onSignOut={() => void signOut()} isAdmin={isAdmin} isChefDep={isChefDep} isAccueil={estAccueil} fullName={fullName} role={profile.role} planningBadge={nbPlanningBadge} validationBadge={nbAValider} encadrementBadge={nbRejetesEnc} />
           </div>
         </div>
       )}
@@ -396,15 +404,15 @@ function AppShell() {
           )}
 
           <Routes>
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/planning" element={<Planning />} />
+            <Route path="/" element={<Navigate to={estAccueil ? '/consolidation' : '/dashboard'} replace />} />
+            <Route path="/dashboard" element={estAccueil ? <Navigate to="/consolidation" replace /> : <Dashboard />} />
+            <Route path="/planning" element={estAccueil ? <Navigate to="/consolidation" replace /> : <Planning />} />
             <Route path="/encadrement" element={(isAdmin || isChefDep) ? <PlanningEncadrement /> : <Navigate to="/dashboard" replace />} />
             <Route path="/direction" element={isAdmin ? <PlanningDirection /> : <Navigate to="/dashboard" replace />} />
-            <Route path="/validation" element={<Validation />} />
-            <Route path="/historique" element={<Historique />} />
-            <Route path="/consolidation" element={(isAdmin || isChefDep) ? <Consolidation /> : <Navigate to="/dashboard" replace />} />
-            <Route path="/reports" element={<Rapports />} />
+            <Route path="/validation" element={estAccueil ? <Navigate to="/consolidation" replace /> : <Validation />} />
+            <Route path="/historique" element={estAccueil ? <Navigate to="/consolidation" replace /> : <Historique />} />
+            <Route path="/consolidation" element={(isAdmin || isChefDep || estAccueil) ? <Consolidation /> : <Navigate to="/dashboard" replace />} />
+            <Route path="/reports" element={estAccueil ? <Navigate to="/consolidation" replace /> : <Rapports />} />
             <Route path="/profil" element={<Profil />} />
             <Route path="/admin" element={isAdmin ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -445,7 +453,7 @@ function AppShell() {
             <Route path="/admin/rayons" element={isAdmin ? <Rayons /> : <Navigate to="/dashboard" replace />} />
             <Route path="/admin/departements" element={isAdmin ? <Departements /> : <Navigate to="/dashboard" replace />} />
             <Route path="/admin/reinitialisation" element={isAdmin ? <Reinitialisation /> : <Navigate to="/dashboard" replace />} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            <Route path="*" element={<Navigate to={estAccueil ? '/consolidation' : '/dashboard'} replace />} />
           </Routes>
         </div>
       </div>
