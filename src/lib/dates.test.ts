@@ -162,4 +162,4 @@ describe('JOURS / JOURS_COURT', () => {
     expect(JOURS_COURT[0]).toBe('L');
     expect(JOURS_COURT[6]).toBe('D');
   });
-});c
+});
