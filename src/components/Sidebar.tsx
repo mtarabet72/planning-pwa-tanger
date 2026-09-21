@@ -19,6 +19,8 @@ interface SidebarProps {
   onSignOut: () => void;
   isAdmin: boolean;
   isChefDep: boolean;
+  /** Rôle "accueil" : ne voit que l'écran Consolidation (lecture seule). */
+  isAccueil: boolean;
   fullName: string;
   role: Role;
   /** Nombre de rayons sans planning cette semaine (badge sur l'onglet Planning). */
@@ -33,7 +35,7 @@ interface SidebarProps {
  * Menu latéral (desktop + tiroir mobile).
  * Composant autonome : déclaré hors de AppShell pour que React ne le remonte pas à chaque rendu.
  */
-export default function Sidebar({ activeTab, onNav, onSignOut, isAdmin, isChefDep, fullName, role, planningBadge, validationBadge, encadrementBadge }: SidebarProps) {
+export default function Sidebar({ activeTab, onNav, onSignOut, isAdmin, isChefDep, isAccueil, fullName, role, planningBadge, validationBadge, encadrementBadge }: SidebarProps) {
   return (
     <div className="flex flex-col h-full">
       <div className="p-6 flex-1">
@@ -46,8 +48,13 @@ export default function Sidebar({ activeTab, onNav, onSignOut, isAdmin, isChefDe
         </div>
         <nav className="space-y-1">
           {MENU_ITEMS.map((item) => {
-            if ('adminOnly' in item && item.adminOnly && !isAdmin) return null;
-            if ('depOnly' in item && item.depOnly && !isAdmin && !isChefDep) return null;
+            if (isAccueil) {
+              // Un compte accueil ne voit que la Consolidation, en lecture seule.
+              if (item.id !== 'consolidation') return null;
+            } else {
+              if ('adminOnly' in item && item.adminOnly && !isAdmin) return null;
+              if ('depOnly' in item && item.depOnly && !isAdmin && !isChefDep) return null;
+            }
             const Icon = item.icon;
             const badge = item.id === 'planning' ? planningBadge : item.id === 'validation' ? validationBadge : item.id === 'encadrement' ? encadrementBadge : 0;
             return (

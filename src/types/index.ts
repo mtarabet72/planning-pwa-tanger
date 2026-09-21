@@ -1,9 +1,10 @@
-export type Role = 'administrateur' | 'chef_departement' | 'chef_rayon';
+export type Role = 'administrateur' | 'chef_departement' | 'chef_rayon' | 'accueil';
 
 export const ROLE_LABELS: Record<Role, string> = {
   administrateur: 'Administrateur',
   chef_departement: 'Chef de Département',
   chef_rayon: 'Chef de Rayon',
+  accueil: 'Accueil',
 };
 
 export interface Departement {
@@ -44,6 +45,11 @@ export function canAccessAdmin(role: Role): boolean {
 
 export function canConsolidateDepartement(role: Role): boolean {
   return role === 'administrateur' || role === 'chef_departement';
+}
+
+/** Rôle "accueil" : lecture seule de la consolidation globale (tous rayons, encadrement, permanence, direction). */
+export function isAccueil(role: Role): boolean {
+  return role === 'accueil';
 }
 
 /** Onglets de navigation principaux de l'application. */

@@ -40,6 +40,7 @@ const ROLE_COLORS: Record<Role, string> = {
   administrateur: 'bg-purple-50 text-purple-700',
   chef_departement: 'bg-blue-50 text-blue-700',
   chef_rayon: 'bg-emerald-50 text-emerald-700',
+  accueil: 'bg-amber-50 text-amber-700',
 };
 
 export default function Utilisateurs() {
@@ -344,6 +345,7 @@ export default function Utilisateurs() {
                   <option value="chef_rayon">Chef de Rayon</option>
                   <option value="chef_departement">Chef de Département</option>
                   <option value="administrateur">Administrateur</option>
+                  <option value="accueil">Accueil</option>
                 </select>
               </div>
               {needsDep && (
