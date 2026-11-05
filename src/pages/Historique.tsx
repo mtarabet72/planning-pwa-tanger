@@ -273,7 +273,7 @@ export default function Historique() {
     doc.setFontSize(6.5);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(100, 100, 100);
-    doc.text('M=Matin  T=Tranche  S=Soir  R=Repos  C=Congé  HN=Horaire Normal  MAL=Maladie  AT=Accident Travail  FOR=Formation', margin, y);
+    doc.text('M=Matin  T=Tranche  S=Soir  R=Repos  C=Congé  HN=Horaire Normal  MAL=Maladie  AT=Accident Travail  FOR=Formation  FE=Jour Férié  JR=Jour Récupération', margin, y);
     doc.save(`historique_${detail.rayonNom.toLowerCase().replace(/\s+/g, '_')}_${formatDate(detail.semaine)}.pdf`);
   }
 

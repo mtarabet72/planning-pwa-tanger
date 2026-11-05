@@ -438,7 +438,7 @@ export default function PlanningDirection() {
     jours.forEach((_, i) => doc.line(margin + nameColW + i * colW, 28, margin + nameColW + i * colW, y));
     y += 5;
     doc.setFontSize(6.5); doc.setTextColor(100, 100, 100);
-    doc.text('M=Matin  T=Tranche  S=Soir  R=Repos  C=Congé  HN=Horaire Normal  MAL=Maladie  AT=Accident Travail  FOR=Formation', margin, y);
+    doc.text('M=Matin  T=Tranche  S=Soir  R=Repos  C=Congé  HN=Horaire Normal  MAL=Maladie  AT=Accident Travail  FOR=Formation  FE=Jour Férié  JR=Jour Récupération', margin, y);
 
     doc.save(`${isPerm ? 'permanence' : 'direction'}_S${numSemaine}.pdf`);
   }

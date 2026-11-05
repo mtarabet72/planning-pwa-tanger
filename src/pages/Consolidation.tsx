@@ -7,7 +7,7 @@ import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 import { getLundi, addDays, formatDate, formatDisplay, formatDisplayLong, getNumeroSemaine, JOURS } from '../lib/dates';
 
-type Poste = 'M' | 'T' | 'S' | 'R' | 'C' | 'HN' | 'MAL' | 'AT' | 'FOR';
+type Poste = 'M' | 'T' | 'S' | 'R' | 'C' | 'HN' | 'MAL' | 'AT' | 'FOR' | 'FE' | 'JR';
 
 const POSTE_STYLE: Record<Poste, string> = {
   M:   'bg-amber-100 text-amber-800 border-amber-300',
@@ -19,11 +19,14 @@ const POSTE_STYLE: Record<Poste, string> = {
   MAL: 'bg-rose-100 text-rose-800 border-rose-300',
   AT:  'bg-red-100 text-red-800 border-red-300',
   FOR: 'bg-violet-100 text-violet-800 border-violet-300',
+  FE:  'bg-orange-100 text-orange-800 border-orange-300',
+  JR:  'bg-cyan-100 text-cyan-800 border-cyan-300',
 };
 
 const POSTE_FILL: Record<Poste, [number, number, number]> = {
   M: [254, 243, 199], T: [219, 234, 254], S: [224, 231, 255], R: [243, 244, 246], C: [209, 250, 229],
   HN: [204, 251, 241], MAL: [255, 228, 230], AT: [254, 226, 226], FOR: [237, 233, 254],
+  FE: [255, 237, 213], JR: [207, 250, 254],
 };
 
 interface Collaborateur {
@@ -403,7 +406,7 @@ export default function Consolidation() {
       doc.setFontSize(6.5);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(100, 100, 100);
-      doc.text('M=Matin  T=Tranche  S=Soir  R=Repos  C=Congé  HN=Horaire Normal  MAL=Maladie  AT=Accident Travail  FOR=Formation', margin, y);
+      doc.text('M=Matin  T=Tranche  S=Soir  R=Repos  C=Congé  HN=Horaire Normal  MAL=Maladie  AT=Accident Travail  FOR=Formation  FE=Jour Férié  JR=Jour Récupération', margin, y);
       doc.setTextColor(180, 180, 180);
       doc.text(`Imprimé le ${new Date().toLocaleDateString('fr-FR')}`, pageW - margin, y, { align: 'right' });
     }
@@ -453,7 +456,7 @@ export default function Consolidation() {
     const commonCols = () => [{ wch: 18 }, { wch: 14 }, ...jours.map(() => ({ wch: 10 })), { wch: 10 }, { wch: 12 }, { wch: 10 }];
     const stats = (postes: Poste[]) => ({
       travail: postes.filter(p => ['M', 'T', 'S', 'HN'].includes(p)).length,
-      repos: postes.filter(p => ['R', 'C'].includes(p)).length,
+      repos: postes.filter(p => ['R', 'C', 'FE', 'JR'].includes(p)).length,
       absences: postes.filter(p => ['MAL', 'AT', 'FOR'].includes(p)).length,
     });
 
