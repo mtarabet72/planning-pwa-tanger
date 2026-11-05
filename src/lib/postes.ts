@@ -1,16 +1,17 @@
 /** Codes de poste utilisés dans tous les plannings (rayon, encadrement, permanence, direction). */
-export type Poste = 'M' | 'T' | 'S' | 'R' | 'C' | 'HN' | 'MAL' | 'AT' | 'FOR';
+export type Poste = 'M' | 'T' | 'S' | 'R' | 'C' | 'HN' | 'MAL' | 'AT' | 'FOR' | 'FE' | 'JR';
 
 /** Cycle rapide (clic simple sur une case du planning). */
 export const POSTES_CYCLE: Poste[] = ['M', 'T', 'S', 'R', 'C'];
 /** Codes spéciaux, accessibles via appui long / menu complet. */
-export const POSTES_SPECIAUX: Poste[] = ['HN', 'MAL', 'AT', 'FOR'];
+export const POSTES_SPECIAUX: Poste[] = ['HN', 'MAL', 'AT', 'FOR', 'FE', 'JR'];
 /** Tous les codes, pour le menu de sélection complet. */
-export const POSTES_TOUS: Poste[] = ['M', 'T', 'S', 'R', 'C', 'HN', 'MAL', 'AT', 'FOR'];
+export const POSTES_TOUS: Poste[] = ['M', 'T', 'S', 'R', 'C', 'HN', 'MAL', 'AT', 'FOR', 'FE', 'JR'];
 
 export const POSTE_LABEL: Record<Poste, string> = {
   M: 'Matin', T: 'Tranche', S: 'Soir', R: 'Repos', C: 'Congé',
   HN: 'Horaire Normal', MAL: 'Maladie', AT: 'Accident Travail', FOR: 'Formation',
+  FE: 'Jour Férié', JR: 'Jour Récupération',
 };
 
 /** Style avec bordure — utilisé sur les grilles éditables (cases cliquables). */
@@ -24,6 +25,8 @@ export const POSTE_STYLE: Record<Poste, string> = {
   MAL: 'bg-rose-100 text-rose-800 border-rose-300',
   AT:  'bg-red-100 text-red-800 border-red-300',
   FOR: 'bg-violet-100 text-violet-800 border-violet-300',
+  FE:  'bg-orange-100 text-orange-800 border-orange-300',
+  JR:  'bg-cyan-100 text-cyan-800 border-cyan-300',
 };
 
 /** Style sans bordure — utilisé sur les affichages en lecture seule (Historique, Rapports). */
@@ -37,6 +40,8 @@ export const POSTE_STYLE_FLAT: Record<Poste, string> = {
   MAL: 'bg-rose-100 text-rose-800',
   AT:  'bg-red-100 text-red-800',
   FOR: 'bg-violet-100 text-violet-800',
+  FE:  'bg-orange-100 text-orange-800',
+  JR:  'bg-cyan-100 text-cyan-800',
 };
 
 /** Couleurs de remplissage RGB pour les exports PDF (jsPDF). */
@@ -50,6 +55,8 @@ export const POSTE_FILL: Record<Poste, [number, number, number]> = {
   MAL: [255, 228, 230],
   AT:  [254, 226, 226],
   FOR: [237, 233, 254],
+  FE:  [255, 237, 213],
+  JR:  [207, 250, 254],
 };
 
 // Catégorisation utilisée pour les compteurs (rapports, consolidation, exports Excel).
@@ -57,7 +64,7 @@ export const POSTE_FILL: Record<Poste, [number, number, number]> = {
 // traite FOR (formation) comme un poste de travail effectif pour la détection d'anomalies —
 // les deux usages ont des besoins différents et ne doivent pas être unifiés sans décision métier.
 export const POSTES_TRAVAIL: readonly Poste[] = ['M', 'T', 'S', 'HN'];
-export const POSTES_REPOS: readonly Poste[] = ['R', 'C'];
+export const POSTES_REPOS: readonly Poste[] = ['R', 'C', 'FE', 'JR'];
 export const POSTES_ABSENCE: readonly Poste[] = ['MAL', 'AT', 'FOR'];
 
 export const estTravail = (p: string): boolean => (POSTES_TRAVAIL as readonly string[]).includes(p);

@@ -38,6 +38,7 @@ function StatCard({ label, value, sub, color, icon: Icon }: {
 const POSTE_COLOR: Record<string, string> = {
   M: 'bg-amber-400', T: 'bg-blue-400', S: 'bg-indigo-400', R: 'bg-gray-300', C: 'bg-emerald-400',
   HN: 'bg-teal-400', MAL: 'bg-rose-400', AT: 'bg-red-400', FOR: 'bg-violet-400',
+  FE: 'bg-orange-400', JR: 'bg-cyan-400',
 };
 
 export default function Dashboard() {
@@ -103,7 +104,7 @@ export default function Dashboard() {
       .select('poste, plannings!inner(semaine_debut)')
       .eq('plannings.semaine_debut', semaineCourante);
 
-    const repartition: Record<string, number> = { M: 0, T: 0, S: 0, R: 0, C: 0, HN: 0, MAL: 0, AT: 0, FOR: 0 };
+    const repartition: Record<string, number> = { M: 0, T: 0, S: 0, R: 0, C: 0, HN: 0, MAL: 0, AT: 0, FOR: 0, FE: 0, JR: 0 };
     for (const l of (lignesRaw ?? []) as { poste: string }[]) {
       if (repartition[l.poste] !== undefined) repartition[l.poste]++;
     }

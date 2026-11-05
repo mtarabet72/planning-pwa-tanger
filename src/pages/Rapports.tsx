@@ -110,7 +110,7 @@ export default function Rapports() {
           .from('collaborateurs').select('nom, prenom').eq('id', l.collaborateur_id).single();
         if (col) cols.push({ nom: col.nom, prenom: col.prenom, poste: l.poste as Poste });
       }
-      const ordre: Record<Poste, number> = { M: 0, T: 1, S: 2, HN: 3, R: 4, C: 5, MAL: 6, AT: 7, FOR: 8 };
+      const ordre: Record<Poste, number> = { M: 0, T: 1, S: 2, HN: 3, R: 4, C: 5, MAL: 6, AT: 7, FOR: 8, FE: 9, JR: 10 };
       cols.sort((a, b) => ordre[a.poste] - ordre[b.poste] || a.nom.localeCompare(b.nom));
       if (cols.length) result.push({ rayonNom: rayon.nom, collaborateurs: cols });
     }
@@ -186,7 +186,7 @@ export default function Rapports() {
     const result: MoisLigne[] = cols.map(c => {
       const cLignes = (lignes ?? []).filter((l: { collaborateur_id: string }) => l.collaborateur_id === c.id);
       const travail = cLignes.filter((l: { poste: string }) => estTravail(l.poste)).length;
-      const repos = cLignes.filter((l: { poste: string }) => l.poste === 'R').length;
+      const repos = cLignes.filter((l: { poste: string }) => ['R', 'FE', 'JR'].includes(l.poste)).length;
       const conge = cLignes.filter((l: { poste: string }) => l.poste === 'C').length;
       const absences = cLignes.filter((l: { poste: string }) => estAbsence(l.poste)).length;
       return {

@@ -178,7 +178,7 @@ CREATE TABLE IF NOT EXISTS "public"."permanence_lignes" (
     "collaborateur_id" "uuid" NOT NULL,
     "jour" "date" NOT NULL,
     "poste" "text" DEFAULT 'R'::"text" NOT NULL,
-    CONSTRAINT "poste_perm_valide" CHECK (("poste" = ANY (ARRAY['M'::"text", 'T'::"text", 'S'::"text", 'R'::"text", 'C'::"text", 'MAL'::"text", 'AT'::"text", 'FOR'::"text", 'HN'::"text"])))
+    CONSTRAINT "poste_perm_valide" CHECK (("poste" = ANY (ARRAY['M'::"text", 'T'::"text", 'S'::"text", 'R'::"text", 'C'::"text", 'MAL'::"text", 'AT'::"text", 'FOR'::"text", 'HN'::"text", 'FE'::"text", 'JR'::"text"])))
 );
 
 
@@ -201,7 +201,7 @@ CREATE TABLE IF NOT EXISTS "public"."planning_encadrement_lignes" (
     "collaborateur_id" "uuid" NOT NULL,
     "jour" "date" NOT NULL,
     "poste" "text" DEFAULT 'R'::"text" NOT NULL,
-    CONSTRAINT "poste_enc_valide" CHECK (("poste" = ANY (ARRAY['M'::"text", 'T'::"text", 'S'::"text", 'R'::"text", 'C'::"text", 'MAL'::"text", 'AT'::"text", 'FOR'::"text", 'HN'::"text"])))
+    CONSTRAINT "poste_enc_valide" CHECK (("poste" = ANY (ARRAY['M'::"text", 'T'::"text", 'S'::"text", 'R'::"text", 'C'::"text", 'MAL'::"text", 'AT'::"text", 'FOR'::"text", 'HN'::"text", 'FE'::"text", 'JR'::"text"])))
 );
 
 
@@ -214,7 +214,7 @@ CREATE TABLE IF NOT EXISTS "public"."planning_lignes" (
     "collaborateur_id" "uuid" NOT NULL,
     "jour" "date" NOT NULL,
     "poste" "text" DEFAULT 'R'::"text" NOT NULL,
-    CONSTRAINT "poste_valide" CHECK (("poste" = ANY (ARRAY['M'::"text", 'T'::"text", 'S'::"text", 'R'::"text", 'C'::"text", 'MAL'::"text", 'AT'::"text", 'FOR'::"text", 'HN'::"text"])))
+    CONSTRAINT "poste_valide" CHECK (("poste" = ANY (ARRAY['M'::"text", 'T'::"text", 'S'::"text", 'R'::"text", 'C'::"text", 'MAL'::"text", 'AT'::"text", 'FOR'::"text", 'HN'::"text", 'FE'::"text", 'JR'::"text"])))
 );
 
 
