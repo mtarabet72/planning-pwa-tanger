@@ -16,7 +16,7 @@ import {
   estAbsence,
 } from './postes';
 
-const TOUS_LES_POSTES: Poste[] = ['M', 'T', 'S', 'R', 'C', 'HN', 'MAL', 'AT', 'FOR'];
+const TOUS_LES_POSTES: Poste[] = ['M', 'T', 'S', 'R', 'C', 'HN', 'MAL', 'AT', 'FOR', 'FE', 'JR'];
 
 describe('POSTES_TOUS', () => {
   it('est l\'union exacte de POSTES_CYCLE et POSTES_SPECIAUX, sans doublon', () => {
