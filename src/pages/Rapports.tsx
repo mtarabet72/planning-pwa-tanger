@@ -1,12 +1,23 @@
-import { useState, useEffect } from 'react';
-import { Loader2, Printer, FileText, Calendar, BarChart3, Sun } from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
+import { Loader2, Printer, FileText, Calendar, BarChart3, Sun, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { canAccessAdmin } from '../types';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
-import { getLundi, addDays, formatDate, formatDisplay, JOURS } from '../lib/dates';
+import { getLundi, addDays, formatDate, formatDisplay, parseDateIso, JOURS } from '../lib/dates';
+import { lireParLots, lireToutesLesPages } from '../lib/pagination';
 import { type Poste, POSTE_STYLE_FLAT as POSTE_STYLE, POSTE_LABEL, estTravail, estAbsence } from '../lib/postes';
+import {
+  PERIODES, estPeriode, periodesVides, filtrerJournalier, filtrerHebdo, filtrerMensuel,
+  statsJournalier, statsHebdo, statsMensuel, mentionsFiltres,
+  type Periode, type RayonLigne, type SemaineLigne, type MoisLigne, type StatsPeriodes,
+} from '../lib/rapports';
+import RapportFiltres from '../components/RapportFiltres';
+
+// recharts est lourd : chargé à la demande, uniquement quand le bloc de statistiques est affiché.
+const RapportGraphiques = lazy(() => import('../components/RapportGraphiques'));
 
 // Variante longue AVEC le nom du jour (spécifique aux rapports quotidiens) — différente de
 // formatDisplayLong de lib/dates.ts qui ne l'inclut pas, donc gardée locale intentionnellement.
@@ -20,32 +31,60 @@ function getMonth(date: Date): { debut: Date; fin: Date } {
   return { debut, fin };
 }
 
-interface RayonLigne {
-  rayonNom: string;
-  collaborateurs: { nom: string; prenom: string; poste: Poste }[];
-}
-
-interface SemaineLigne {
-  rayonNom: string;
-  depNom: string;
-  collaborateurs: { nom: string; prenom: string; postes: Poste[] }[];
-}
-
-interface MoisLigne {
-  nom: string;
-  prenom: string;
-  rayonNom: string;
-  travail: number;
-  repos: number;
-  conge: number;
-  absences: number;
-  total: number;
-}
-
 type TabType = 'journalier' | 'hebdomadaire' | 'mensuel';
+
+const moisCourant = (): string => {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
+};
+
+/** Tronque un texte pour qu'il tienne dans `maxW` mm avec la police courante de jsPDF. */
+function tronquer(doc: jsPDF, texte: string, maxW: number): string {
+  if (doc.getTextWidth(texte) <= maxW) return texte;
+  let t = texte;
+  while (t.length > 1 && doc.getTextWidth(`${t}...`) > maxW) t = t.slice(0, -1);
+  return `${t}...`;
+}
+
+/**
+ * Bandeau bleu des PDF (inchangé visuellement) + mention des filtres actifs alignée à droite :
+ * 1 filtre → sur la ligne du sous-titre ; 2 filtres → un sur la ligne du titre, un sur celle du sous-titre.
+ */
+function dessinerEntete(doc: jsPDF, o: {
+  pageW: number; margin: number;
+  titre: string; titreSize: number;
+  sousTitre: string; sousTitreSize: number;
+  filtres: string[];
+}) {
+  const { pageW, margin, titre, titreSize, sousTitre, sousTitreSize, filtres } = o;
+  doc.setFillColor(37, 99, 235);
+  doc.rect(0, 0, pageW, 22, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(titreSize);
+  doc.setFont('helvetica', 'bold');
+  doc.text(titre, margin, 10);
+  const titreW = doc.getTextWidth(titre);
+  doc.setFontSize(sousTitreSize);
+  doc.setFont('helvetica', 'normal');
+  doc.text(sousTitre, margin, 17);
+  const sousW = doc.getTextWidth(sousTitre);
+
+  if (!filtres.length) return;
+  doc.setFontSize(8);
+  const lignes = filtres.length === 1
+    ? [{ t: filtres[0], y: 17, w: sousW }]
+    : [{ t: filtres[0], y: 10, w: titreW }, { t: filtres[1], y: 17, w: sousW }];
+  for (const l of lignes) {
+    const maxW = pageW - margin * 2 - l.w - 6;
+    if (maxW < 20) continue;
+    doc.text(tronquer(doc, l.t, maxW), pageW - margin, l.y, { align: 'right' });
+  }
+}
 
 export default function Rapports() {
   const { profile } = useAuth();
+  const { toast } = useToast();
+  const requeteRef = useRef(0);
   const isAdmin = canAccessAdmin(profile?.role ?? 'chef_rayon');
   const isChefDep = profile?.role === 'chef_departement';
 
@@ -54,8 +93,11 @@ export default function Rapports() {
 
   const [date, setDate] = useState<string>(formatDate(new Date()));
   const [semaine, setSemaine] = useState<Date>(getLundi(new Date()));
-  const [mois, setMois] = useState<string>(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
+  const [mois, setMois] = useState<string>(moisCourant);
   const [filterDep, setFilterDep] = useState<string>('');
+  // Filtre période : tableau vide = « Toutes les périodes ». Appliqué côté client → aucun rechargement.
+  const [periodes, setPeriodes] = useState<Periode[]>([]);
+  const [showStats, setShowStats] = useState(true);
 
   const [departements, setDepartements] = useState<{ id: string; nom: string }[]>([]);
   const [journalierData, setJournalierData] = useState<RayonLigne[]>([]);
@@ -63,6 +105,32 @@ export default function Rapports() {
   const [moisData, setMoisData] = useState<MoisLigne[]>([]);
 
   const jours = Array.from({ length: 7 }, (_, i) => addDays(semaine, i));
+
+  // Filtrage côté client : changer de période met à jour liste, graphiques et PDF sans requête Supabase.
+  const journalierFiltre = useMemo(() => filtrerJournalier(journalierData, periodes), [journalierData, periodes]);
+  const hebdoFiltre = useMemo(() => filtrerHebdo(hebdoData, periodes), [hebdoData, periodes]);
+  const moisFiltre = useMemo(() => filtrerMensuel(moisData, periodes), [moisData, periodes]);
+
+  const statsJour = useMemo(() => statsJournalier(journalierFiltre), [journalierFiltre]);
+  const statsSemaine = useMemo(() => statsHebdo(hebdoFiltre), [hebdoFiltre]);
+  const statsMois = useMemo(() => statsMensuel(moisFiltre), [moisFiltre]);
+
+  const departementNom = filterDep ? departements.find(d => d.id === filterDep)?.nom ?? null : null;
+  const mentions = useMemo(() => mentionsFiltres(periodes, departementNom), [periodes, departementNom]);
+
+  const filtresParDefaut =
+    periodes.length === 0 && filterDep === '' &&
+    date === formatDate(new Date()) &&
+    formatDate(semaine) === formatDate(getLundi(new Date())) &&
+    mois === moisCourant();
+
+  const resetFiltres = useCallback(() => {
+    setPeriodes([]);
+    setFilterDep('');
+    setDate(formatDate(new Date()));
+    setSemaine(getLundi(new Date()));
+    setMois(moisCourant());
+  }, []);
 
   useEffect(() => { loadDeps(); }, []);
   useEffect(() => { loadReport(); }, [activeTab, date, semaine, mois, filterDep]);
@@ -73,134 +141,183 @@ export default function Rapports() {
   }
 
   async function loadReport() {
+    const id = ++requeteRef.current;
+    const estCourant = () => id === requeteRef.current; // ignore les réponses périmées (changement rapide de filtre)
     setLoading(true);
-    if (activeTab === 'journalier') await loadJournalier();
-    else if (activeTab === 'hebdomadaire') await loadHebdo();
-    else await loadMensuel();
-    setLoading(false);
-  }
-
-  async function loadJournalier() {
-    let rayQuery = supabase.from('rayons').select('id, nom, departement_id').eq('actif', true).order('nom');
-    if (profile?.role === 'chef_rayon' && profile.rayon_ids.length > 0) rayQuery = rayQuery.in('id', profile.rayon_ids);
-    else if (isChefDep && (profile?.departement_ids?.length ?? 0) > 0) rayQuery = rayQuery.in('departement_id', profile!.departement_ids);
-    else if (filterDep) rayQuery = rayQuery.eq('departement_id', filterDep);
-    const { data: rayons } = await rayQuery;
-    if (!rayons?.length) { setJournalierData([]); return; }
-
-    const lundi = formatDate(getLundi(new Date(date)));
-    const result: RayonLigne[] = [];
-
-    for (const rayon of rayons) {
-      const { data: plan } = await supabase
-        .from('plannings').select('id').eq('rayon_id', rayon.id).eq('semaine_debut', lundi).single();
-      if (!plan) continue;
-
-      // Toutes les tranches de présence (M, T, S, HN) — pas seulement Matin
-      const { data: lignes } = await supabase
-        .from('planning_lignes').select('collaborateur_id, poste')
-        .eq('planning_id', plan.id).eq('jour', date)
-        .in('poste', ['M', 'T', 'S', 'HN']);
-
-      if (!lignes?.length) continue;
-
-      const cols: { nom: string; prenom: string; poste: Poste }[] = [];
-      for (const l of lignes) {
-        const { data: col } = await supabase
-          .from('collaborateurs').select('nom, prenom').eq('id', l.collaborateur_id).single();
-        if (col) cols.push({ nom: col.nom, prenom: col.prenom, poste: l.poste as Poste });
-      }
-      const ordre: Record<Poste, number> = { M: 0, T: 1, S: 2, HN: 3, R: 4, C: 5, MAL: 6, AT: 7, FOR: 8, FE: 9, JR: 10 };
-      cols.sort((a, b) => ordre[a.poste] - ordre[b.poste] || a.nom.localeCompare(b.nom));
-      if (cols.length) result.push({ rayonNom: rayon.nom, collaborateurs: cols });
+    try {
+      if (activeTab === 'journalier') await loadJournalier(estCourant);
+      else if (activeTab === 'hebdomadaire') await loadHebdo(estCourant);
+      else await loadMensuel(estCourant);
+    } catch (e) {
+      if (estCourant()) toast.error(`Chargement du rapport impossible : ${e instanceof Error ? e.message : 'erreur inconnue'}`);
+    } finally {
+      if (estCourant()) setLoading(false);
     }
-    setJournalierData(result);
   }
 
-  async function loadHebdo() {
+  /** Rayons visibles selon le rôle (chef de rayon / chef de département) ou le département choisi (admin). */
+  async function chargerRayons() {
     let rayQuery = supabase.from('rayons').select('id, nom, departements(nom)').eq('actif', true).order('nom');
     if (profile?.role === 'chef_rayon' && profile.rayon_ids.length > 0) rayQuery = rayQuery.in('id', profile.rayon_ids);
     else if (isChefDep && (profile?.departement_ids?.length ?? 0) > 0) rayQuery = rayQuery.in('departement_id', profile!.departement_ids);
     else if (filterDep) rayQuery = rayQuery.eq('departement_id', filterDep);
-    const { data: rayonsRaw } = await rayQuery;
-    if (!rayonsRaw?.length) { setHebdoData([]); return; }
-    // Cf. Departements.tsx : `departements` est déduit comme un tableau par le générateur de
-    // types pour cette relation imbriquée, alors que PostgREST renvoie un objet unique.
-    const rayons = rayonsRaw as unknown as { id: string; nom: string; departements: { nom: string } | null }[];
-
-    const debut = formatDate(semaine);
-    const result: SemaineLigne[] = [];
-
-    for (const rayon of rayons) {
-      const { data: plan } = await supabase
-        .from('plannings').select('id').eq('rayon_id', rayon.id).eq('semaine_debut', debut).single();
-
-      const { data: cols } = await supabase
-        .from('collaborateurs').select('id, nom, prenom').eq('rayon_id', rayon.id).eq('actif', true)
-        .neq('fonction', 'chef_rayon').order('nom');
-
-      if (!cols?.length) continue;
-
-      const colsData = await Promise.all(cols.map(async (c: { id: string; nom: string; prenom: string }) => {
-        const postes: Poste[] = [];
-        for (const j of jours) {
-          if (plan) {
-            const { data: l } = await supabase
-              .from('planning_lignes').select('poste')
-              .eq('planning_id', plan.id).eq('collaborateur_id', c.id).eq('jour', formatDate(j)).single();
-            postes.push((l?.poste as Poste) ?? 'R');
-          } else {
-            postes.push('R');
-          }
-        }
-        return { nom: c.nom, prenom: c.prenom, postes };
-      }));
-
-      result.push({ rayonNom: rayon.nom, depNom: rayon.departements?.nom ?? '', collaborateurs: colsData });
-    }
-    setHebdoData(result);
+    const { data, error } = await rayQuery;
+    if (error) throw new Error(error.message);
+    // Cf. Departements.tsx : `departements` est déduit comme un tableau par le générateur de types
+    // pour cette relation imbriquée, alors que PostgREST renvoie un objet unique.
+    return (data ?? []) as unknown as { id: string; nom: string; departements: { nom: string } | null }[];
   }
 
-  async function loadMensuel() {
+  // Chargements : requêtes groupées (quelques appels au total, indépendants du nombre de rayons /
+  // collaborateurs) + pagination au-delà de 1000 lignes (cf. lib/pagination.ts).
+
+  async function loadJournalier(estCourant: () => boolean) {
+    const rayons = await chargerRayons();
+    const lundi = formatDate(getLundi(parseDateIso(date)));
+    const rayonIds = rayons.map(r => r.id);
+
+    const plans = await lireParLots(rayonIds, (lot, d, f) =>
+      supabase.from('plannings').select('id, rayon_id').in('rayon_id', lot).eq('semaine_debut', lundi).order('id').range(d, f));
+    const rayonParPlan = new Map(plans.map(p => [p.id, p.rayon_id]));
+
+    // Toutes les tranches de présence (M, T, S, HN) — pas seulement Matin
+    const lignes = await lireParLots(plans.map(p => p.id), (lot, d, f) =>
+      supabase.from('planning_lignes').select('id, planning_id, collaborateur_id, poste')
+        .in('planning_id', lot).eq('jour', date).in('poste', [...PERIODES]).order('id').range(d, f));
+
+    const colIds = [...new Set(lignes.map(l => l.collaborateur_id))];
+    const cols = await lireParLots(colIds, (lot, d, f) =>
+      supabase.from('collaborateurs').select('id, nom, prenom').in('id', lot).order('id').range(d, f));
+    const colParId = new Map(cols.map(c => [c.id, c]));
+
+    const parRayon = new Map<string, RayonLigne['collaborateurs']>();
+    for (const l of lignes) {
+      const rayonId = rayonParPlan.get(l.planning_id);
+      const col = colParId.get(l.collaborateur_id);
+      if (!rayonId || !col) continue;
+      let liste = parRayon.get(rayonId);
+      if (!liste) { liste = []; parRayon.set(rayonId, liste); }
+      liste.push({ nom: col.nom, prenom: col.prenom, poste: l.poste as Poste });
+    }
+
+    const ordre: Record<Poste, number> = { M: 0, T: 1, S: 2, HN: 3, R: 4, C: 5, MAL: 6, AT: 7, FOR: 8, FE: 9, JR: 10 };
+    const result: RayonLigne[] = [];
+    for (const rayon of rayons) {
+      const cs = parRayon.get(rayon.id);
+      if (!cs?.length) continue;
+      cs.sort((a, b) => ordre[a.poste] - ordre[b.poste] || a.nom.localeCompare(b.nom));
+      result.push({ rayonNom: rayon.nom, depNom: rayon.departements?.nom ?? '', collaborateurs: cs });
+    }
+    if (estCourant()) setJournalierData(result);
+  }
+
+  async function loadHebdo(estCourant: () => boolean) {
+    const rayons = await chargerRayons();
+    const rayonIds = rayons.map(r => r.id);
+    const debut = formatDate(semaine);
+    const fin = formatDate(addDays(semaine, 6));
+
+    const plans = await lireParLots(rayonIds, (lot, d, f) =>
+      supabase.from('plannings').select('id, rayon_id').in('rayon_id', lot).eq('semaine_debut', debut).order('id').range(d, f));
+    const planParRayon = new Map(plans.map(p => [p.rayon_id, p.id]));
+
+    const cols = await lireParLots(rayonIds, (lot, d, f) =>
+      supabase.from('collaborateurs').select('id, nom, prenom, rayon_id')
+        .in('rayon_id', lot).eq('actif', true).neq('fonction', 'chef_rayon').order('nom').order('id').range(d, f));
+
+    const lignes = await lireParLots(plans.map(p => p.id), (lot, d, f) =>
+      supabase.from('planning_lignes').select('id, planning_id, collaborateur_id, jour, poste')
+        .in('planning_id', lot).gte('jour', debut).lte('jour', fin).order('id').range(d, f));
+    const posteParCase = new Map(lignes.map(l => [`${l.planning_id}|${l.collaborateur_id}|${l.jour}`, l.poste as Poste]));
+
+    const colsParRayon = new Map<string, typeof cols>();
+    for (const c of cols) {
+      if (c.rayon_id === null) continue;
+      let liste = colsParRayon.get(c.rayon_id);
+      if (!liste) { liste = []; colsParRayon.set(c.rayon_id, liste); }
+      liste.push(c);
+    }
+
+    const result: SemaineLigne[] = [];
+    for (const rayon of rayons) {
+      const cs = colsParRayon.get(rayon.id);
+      if (!cs?.length) continue;
+      const planId = planParRayon.get(rayon.id);
+      result.push({
+        rayonNom: rayon.nom,
+        depNom: rayon.departements?.nom ?? '',
+        collaborateurs: cs.map(c => ({
+          nom: c.nom,
+          prenom: c.prenom,
+          postes: jours.map(j => (planId ? posteParCase.get(`${planId}|${c.id}|${formatDate(j)}`) : undefined) ?? 'R'),
+        })),
+      });
+    }
+    if (estCourant()) setHebdoData(result);
+  }
+
+  async function loadMensuel(estCourant: () => boolean) {
     const [year, month] = mois.split('-').map(Number);
     const { debut, fin } = getMonth(new Date(year, month - 1, 1));
 
-    let colQuery = supabase.from('collaborateurs').select('id, nom, prenom, rayon_id, rayons(nom)').eq('actif', true).neq('fonction', 'chef_rayon').order('nom');
+    // Périmètre de rayons selon le rôle ; null = aucun filtre (administrateur sans département choisi).
+    let perimetre: string[] | null = null;
     if (profile?.role === 'chef_rayon' && profile.rayon_ids.length > 0) {
-      colQuery = colQuery.in('rayon_id', profile.rayon_ids);
-    } else if (isChefDep && (profile?.departement_ids?.length ?? 0) > 0) {
-      const { data: rays } = await supabase.from('rayons').select('id').in('departement_id', profile!.departement_ids);
-      colQuery = colQuery.in('rayon_id', (rays ?? []).map((r: { id: string }) => r.id));
-    } else if (filterDep) {
-      const { data: rays } = await supabase.from('rayons').select('id').eq('departement_id', filterDep);
-      colQuery = colQuery.in('rayon_id', (rays ?? []).map((r: { id: string }) => r.id));
+      perimetre = profile.rayon_ids;
+    } else if ((isChefDep && (profile?.departement_ids?.length ?? 0) > 0) || filterDep) {
+      const depIds = isChefDep && (profile?.departement_ids?.length ?? 0) > 0 ? profile!.departement_ids : [filterDep];
+      const { data: rays, error } = await supabase.from('rayons').select('id').in('departement_id', depIds);
+      if (error) throw new Error(error.message);
+      perimetre = (rays ?? []).map((r: { id: string }) => r.id);
     }
-    const { data: colsRaw } = await colQuery;
-    if (!colsRaw?.length) { setMoisData([]); return; }
-    const cols = colsRaw as unknown as { id: string; nom: string; prenom: string; rayons: { nom: string } | null }[];
 
-    const { data: lignes } = await supabase
-      .from('planning_lignes').select('collaborateur_id, poste, jour')
-      .gte('jour', formatDate(debut)).lte('jour', formatDate(fin));
+    const colQuery = () => supabase.from('collaborateurs')
+      .select('id, nom, prenom, rayon_id, rayons(nom, departements(nom))')
+      .eq('actif', true).neq('fonction', 'chef_rayon').order('nom').order('id');
+    const colsRaw = perimetre
+      ? await lireParLots(perimetre, (lot, d, f) => colQuery().in('rayon_id', lot).range(d, f))
+      : await lireToutesLesPages((d, f) => colQuery().range(d, f));
+    if (!colsRaw.length) { if (estCourant()) setMoisData([]); return; }
+    const cols = (colsRaw as unknown as { id: string; nom: string; prenom: string; rayons: { nom: string; departements: { nom: string } | null } | null }[])
+      .sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+
+    // Uniquement les lignes des collaborateurs concernés (et non celles de tout le magasin), par lots + pages.
+    const lignes = await lireParLots(cols.map(c => c.id), (lot, d, f) =>
+      supabase.from('planning_lignes').select('id, collaborateur_id, poste')
+        .in('collaborateur_id', lot).gte('jour', formatDate(debut)).lte('jour', formatDate(fin)).order('id').range(d, f));
+
+    // Regroupement unique par collaborateur (évite un filter() sur toutes les lignes pour chaque collaborateur).
+    const postesParCollab = new Map<string, string[]>();
+    for (const l of lignes) {
+      let arr = postesParCollab.get(l.collaborateur_id);
+      if (!arr) { arr = []; postesParCollab.set(l.collaborateur_id, arr); }
+      arr.push(l.poste);
+    }
 
     const result: MoisLigne[] = cols.map(c => {
-      const cLignes = (lignes ?? []).filter((l: { collaborateur_id: string }) => l.collaborateur_id === c.id);
-      const travail = cLignes.filter((l: { poste: string }) => estTravail(l.poste)).length;
-      const repos = cLignes.filter((l: { poste: string }) => ['R', 'FE', 'JR'].includes(l.poste)).length;
-      const conge = cLignes.filter((l: { poste: string }) => l.poste === 'C').length;
-      const absences = cLignes.filter((l: { poste: string }) => estAbsence(l.poste)).length;
+      const postes = postesParCollab.get(c.id) ?? [];
+      const parPeriode = periodesVides();
+      let repos = 0, conge = 0, absences = 0;
+      for (const p of postes) {
+        if (estPeriode(p)) parPeriode[p]++;
+        if (['R', 'FE', 'JR'].includes(p)) repos++;
+        else if (p === 'C') conge++;
+        if (estAbsence(p)) absences++;
+      }
       return {
         nom: c.nom,
         prenom: c.prenom,
         rayonNom: c.rayons?.nom ?? '—',
-        travail,
+        depNom: c.rayons?.departements?.nom ?? '',
+        travail: PERIODES.reduce((a, p) => a + parPeriode[p], 0),
         repos,
         conge,
         absences,
-        total: cLignes.length,
+        total: postes.length,
+        parPeriode,
       };
     });
-    setMoisData(result);
+    if (estCourant()) setMoisData(result);
   }
 
   function exportJournalierPDF() {
@@ -208,24 +325,21 @@ export default function Rapports() {
     const margin = 14;
     const pageW = 210;
 
-    doc.setFillColor(37, 99, 235);
-    doc.rect(0, 0, pageW, 22, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(13);
-    doc.setFont('helvetica', 'bold');
-    doc.text('RAPPORT JOURNALIER — MARJANE TANGER', margin, 10);
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'normal');
-    doc.text(formatDisplayLong(new Date(date)), margin, 17);
+    dessinerEntete(doc, {
+      pageW, margin,
+      titre: 'RAPPORT JOURNALIER — MARJANE TANGER', titreSize: 13,
+      sousTitre: formatDisplayLong(new Date(date)), sousTitreSize: 8,
+      filtres: mentions,
+    });
 
     let y = 28;
-    const total = journalierData.reduce((acc, r) => acc + r.collaborateurs.length, 0);
+    const total = journalierFiltre.reduce((acc, r) => acc + r.collaborateurs.length, 0);
     doc.setFontSize(9);
     doc.setTextColor(60, 60, 60);
     doc.text(`Total présents : ${total} collaborateur(s)`, margin, y);
     y += 8;
 
-    for (const rayon of journalierData) {
+    for (const rayon of journalierFiltre) {
       if (y > 260) { doc.addPage(); y = 20; }
       doc.setFillColor(240, 242, 255);
       doc.rect(margin, y, pageW - margin * 2, 7, 'F');
@@ -261,20 +375,17 @@ export default function Rapports() {
     const colW = (pageW - margin * 2 - nameColW) / 7;
     let firstPage = true;
 
-    for (const rayon of hebdoData) {
+    for (const rayon of hebdoFiltre) {
       if (!rayon.collaborateurs.length) continue;
       if (!firstPage) doc.addPage();
       firstPage = false;
 
-      doc.setFillColor(37, 99, 235);
-      doc.rect(0, 0, pageW, 22, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`RAPPORT HEBDOMADAIRE — ${rayon.rayonNom}`, margin, 10);
-      doc.setFontSize(8);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`${rayon.depNom}  |  Semaine du ${formatDisplay(semaine)} au ${formatDisplay(addDays(semaine, 6))}`, margin, 17);
+      dessinerEntete(doc, {
+        pageW, margin,
+        titre: `RAPPORT HEBDOMADAIRE — ${rayon.rayonNom}`, titreSize: 12,
+        sousTitre: `${rayon.depNom}  |  Semaine du ${formatDisplay(semaine)} au ${formatDisplay(addDays(semaine, 6))}`, sousTitreSize: 8,
+        filtres: mentions,
+      });
 
       let y = 26;
       const headerH = 8;
@@ -302,6 +413,7 @@ export default function Rapports() {
         doc.setFont('helvetica', 'bold');
         doc.text(`${c.nom} ${c.prenom}`, margin + 2, y + 5.5);
         c.postes.forEach((p, i) => {
+          if (p === null) return; // case masquée par le filtre de période
           const x = margin + nameColW + i * colW;
           doc.setFontSize(p.length > 1 ? 6 : 8);
           doc.text(p, x + colW / 2, y + 5.5, { align: 'center' });
@@ -321,15 +433,15 @@ export default function Rapports() {
     const nomMois = new Date(year, month - 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
 
     const headers = ['Nom', 'Prénom', 'Rayon', 'Jours Travaillés', 'Jours Repos', 'Jours Congé', 'Jours Absence', 'Total Planifié'];
-    const rows = moisData.map(c => [c.nom, c.prenom, c.rayonNom, c.travail, c.repos, c.conge, c.absences, c.total]);
+    const rows = moisFiltre.map(c => [c.nom, c.prenom, c.rayonNom, c.travail, c.repos, c.conge, c.absences, c.total]);
 
     const wsData = [
       [`RAPPORT MENSUEL — MARJANE TANGER — ${nomMois.toUpperCase()}`],
-      [],
+      mentions.length ? [mentions.join('  |  ')] : [],
       headers,
       ...rows,
       [],
-      ['TOTAL', '', '', moisData.reduce((a, c) => a + c.travail, 0), moisData.reduce((a, c) => a + c.repos, 0), moisData.reduce((a, c) => a + c.conge, 0), moisData.reduce((a, c) => a + c.absences, 0), ''],
+      ['TOTAL', '', '', moisFiltre.reduce((a, c) => a + c.travail, 0), moisFiltre.reduce((a, c) => a + c.repos, 0), moisFiltre.reduce((a, c) => a + c.conge, 0), moisFiltre.reduce((a, c) => a + c.absences, 0), ''],
     ];
 
     const ws = XLSX.utils.aoa_to_sheet(wsData);
@@ -346,15 +458,12 @@ export default function Rapports() {
     const margin = 14;
     const pageW = 210;
 
-    doc.setFillColor(37, 99, 235);
-    doc.rect(0, 0, pageW, 22, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(13);
-    doc.setFont('helvetica', 'bold');
-    doc.text('RAPPORT MENSUEL — MARJANE TANGER', margin, 10);
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.text(nomMois.charAt(0).toUpperCase() + nomMois.slice(1), margin, 17);
+    dessinerEntete(doc, {
+      pageW, margin,
+      titre: 'RAPPORT MENSUEL — MARJANE TANGER', titreSize: 13,
+      sousTitre: nomMois.charAt(0).toUpperCase() + nomMois.slice(1), sousTitreSize: 9,
+      filtres: mentions,
+    });
 
     let y = 28;
     const colWidths = [40, 26, 20, 18, 18, 20, 20];
@@ -371,7 +480,7 @@ export default function Rapports() {
     });
     y += 8;
 
-    moisData.forEach((c, idx) => {
+    moisFiltre.forEach((c, idx) => {
       if (y > 275) { doc.addPage(); y = 20; }
       const bg: [number, number, number] = idx % 2 === 0 ? [255, 255, 255] : [249, 250, 251];
       doc.setFillColor(...bg);
@@ -396,6 +505,28 @@ export default function Rapports() {
     { id: 'hebdomadaire', label: 'Hebdomadaire', icon: Calendar },
     { id: 'mensuel', label: 'Mensuel', icon: BarChart3 },
   ] as const;
+
+  /** Bloc de statistiques (repliable) placé au-dessus de la liste ; suit les filtres actifs. */
+  function renderStats(stats: StatsPeriodes, unite: string) {
+    return (
+      <div className="space-y-3">
+        <button
+          type="button"
+          onClick={() => setShowStats(v => !v)}
+          aria-expanded={showStats}
+          className="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-blue-600 transition"
+        >
+          <BarChart3 className="w-4 h-4" /> Statistiques par période
+          {showStats ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        {showStats && (
+          <Suspense fallback={<div className="flex justify-center py-10"><Loader2 className="w-5 h-5 text-blue-500 animate-spin" /></div>}>
+            <RapportGraphiques stats={stats} periodes={periodes} unite={unite} />
+          </Suspense>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -441,17 +572,17 @@ export default function Rapports() {
             {departements.map(d => <option key={d.id} value={d.id}>{d.nom}</option>)}
           </select>
         )}
-        {activeTab === 'journalier' && journalierData.length > 0 && (
+        {activeTab === 'journalier' && journalierFiltre.length > 0 && (
           <button onClick={exportJournalierPDF} className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-emerald-700 transition">
             <Printer className="w-4 h-4" /> PDF
           </button>
         )}
-        {activeTab === 'hebdomadaire' && hebdoData.length > 0 && (
+        {activeTab === 'hebdomadaire' && hebdoFiltre.length > 0 && (
           <button onClick={exportHebdoPDF} className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-emerald-700 transition">
             <Printer className="w-4 h-4" /> PDF
           </button>
         )}
-        {activeTab === 'mensuel' && moisData.length > 0 && (
+        {activeTab === 'mensuel' && moisFiltre.length > 0 && (
           <>
             <button onClick={exportMensuelPDF} className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-emerald-700 transition">
               <Printer className="w-4 h-4" /> PDF
@@ -463,6 +594,8 @@ export default function Rapports() {
         )}
       </div>
 
+      <RapportFiltres periodes={periodes} onChange={setPeriodes} onReset={resetFiltres} resetDisabled={filtresParDefaut} />
+
       {loading ? (
         <div className="flex justify-center py-16">
           <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
@@ -470,23 +603,26 @@ export default function Rapports() {
       ) : (
         <>
           {activeTab === 'journalier' && (
-            journalierData.length === 0 ? (
+            journalierFiltre.length === 0 ? (
               <div className="bg-white rounded-2xl p-10 text-center text-gray-400 text-sm">
-                Aucun collaborateur présent ce jour ou aucun planning sauvegardé.
+                {journalierData.length > 0
+                  ? 'Aucun collaborateur ne correspond à la période sélectionnée ce jour.'
+                  : 'Aucun collaborateur présent ce jour ou aucun planning sauvegardé.'}
               </div>
             ) : (
               <div className="space-y-3">
+                {renderStats(statsJour, 'collaborateurs')}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-white rounded-2xl p-4 border border-gray-100 text-center">
-                    <div className="text-2xl font-bold text-blue-600">{journalierData.reduce((a: number, r: RayonLigne) => a + r.collaborateurs.length, 0)}</div>
+                    <div className="text-2xl font-bold text-blue-600">{statsJour.total}</div>
                     <div className="text-xs text-gray-500 mt-1">Présents aujourd'hui</div>
                   </div>
                   <div className="bg-white rounded-2xl p-4 border border-gray-100 text-center">
-                    <div className="text-2xl font-bold text-emerald-600">{journalierData.length}</div>
+                    <div className="text-2xl font-bold text-emerald-600">{journalierFiltre.length}</div>
                     <div className="text-xs text-gray-500 mt-1">Rayons concernés</div>
                   </div>
                 </div>
-                {journalierData.map(rayon => (
+                {journalierFiltre.map(rayon => (
                   <div key={rayon.rayonNom} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
                     <div className="px-4 py-3 bg-blue-50 flex justify-between items-center">
                       <span className="font-semibold text-blue-900 text-sm">{rayon.rayonNom}</span>
@@ -512,13 +648,16 @@ export default function Rapports() {
           )}
 
           {activeTab === 'hebdomadaire' && (
-            hebdoData.length === 0 ? (
+            hebdoFiltre.length === 0 ? (
               <div className="bg-white rounded-2xl p-10 text-center text-gray-400 text-sm">
-                Aucune donnée pour cette semaine.
+                {hebdoData.length > 0
+                  ? 'Aucun collaborateur ne correspond à la période sélectionnée cette semaine.'
+                  : 'Aucune donnée pour cette semaine.'}
               </div>
             ) : (
               <div className="space-y-4">
-                {hebdoData.map(rayon => (
+                {renderStats(statsSemaine, 'jours-collaborateur')}
+                {hebdoFiltre.map(rayon => (
                   <div key={rayon.rayonNom} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
                     <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex justify-between">
                       <span className="font-semibold text-sm">{rayon.rayonNom}</span>
@@ -539,15 +678,19 @@ export default function Rapports() {
                         </thead>
                         <tbody className="divide-y divide-gray-50">
                           {rayon.collaborateurs.map((c, i) => {
-                            const travail = c.postes.filter(estTravail).length;
+                            const travail = c.postes.filter(p => p !== null && estTravail(p)).length;
                             return (
                               <tr key={i} className="hover:bg-gray-50">
                                 <td className="px-4 py-2 font-medium">{c.nom} <span className="text-gray-400 font-normal">{c.prenom}</span></td>
                                 {c.postes.map((p, j) => (
                                   <td key={j} className="px-1 py-2 text-center">
-                                    <span className={`inline-flex items-center justify-center w-8 h-6 rounded font-bold ${
-                                      p.length > 1 ? 'text-[8px]' : 'text-xs'
-                                    } ${POSTE_STYLE[p]}`}>{p}</span>
+                                    {p === null ? (
+                                      <span className="text-gray-300">·</span>
+                                    ) : (
+                                      <span className={`inline-flex items-center justify-center w-8 h-6 rounded font-bold ${
+                                        p.length > 1 ? 'text-[8px]' : 'text-xs'
+                                      } ${POSTE_STYLE[p]}`}>{p}</span>
+                                    )}
                                   </td>
                                 ))}
                                 <td className="px-2 py-2 text-center font-bold text-blue-600">{travail}j</td>
@@ -564,11 +707,15 @@ export default function Rapports() {
           )}
 
           {activeTab === 'mensuel' && (
-            moisData.length === 0 ? (
+            moisFiltre.length === 0 ? (
               <div className="bg-white rounded-2xl p-10 text-center text-gray-400 text-sm">
-                Aucune donnée pour ce mois.
+                {moisData.length > 0
+                  ? 'Aucun collaborateur ne correspond à la période sélectionnée ce mois-ci.'
+                  : 'Aucune donnée pour ce mois.'}
               </div>
             ) : (
+              <div className="space-y-4">
+              {renderStats(statsMois, 'jours-collaborateur')}
               <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -584,7 +731,7 @@ export default function Rapports() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
-                      {moisData.map((c, i) => (
+                      {moisFiltre.map((c, i) => (
                         <tr key={i} className="hover:bg-gray-50">
                           <td className="px-4 py-3">
                             <div className="font-medium text-sm">{c.nom}</div>
@@ -602,15 +749,16 @@ export default function Rapports() {
                     <tfoot className="bg-gray-50 border-t border-gray-100">
                       <tr>
                         <td colSpan={2} className="px-4 py-3 font-semibold text-sm">TOTAL</td>
-                        <td className="px-3 py-3 text-center font-bold text-blue-600">{moisData.reduce((a: number, c: MoisLigne) => a + c.travail, 0)}j</td>
-                        <td className="px-3 py-3 text-center text-gray-400 text-xs">{moisData.reduce((a: number, c: MoisLigne) => a + c.repos, 0)}j</td>
-                        <td className="px-3 py-3 text-center text-emerald-600 text-xs">{moisData.reduce((a: number, c: MoisLigne) => a + c.conge, 0)}j</td>
-                        <td className="px-3 py-3 text-center text-rose-500 text-xs">{moisData.reduce((a: number, c: MoisLigne) => a + c.absences, 0)}j</td>
-                        <td className="px-3 py-3 text-center text-gray-500 text-xs">{moisData.reduce((a: number, c: MoisLigne) => a + c.total, 0)}j</td>
+                        <td className="px-3 py-3 text-center font-bold text-blue-600">{moisFiltre.reduce((a: number, c: MoisLigne) => a + c.travail, 0)}j</td>
+                        <td className="px-3 py-3 text-center text-gray-400 text-xs">{moisFiltre.reduce((a: number, c: MoisLigne) => a + c.repos, 0)}j</td>
+                        <td className="px-3 py-3 text-center text-emerald-600 text-xs">{moisFiltre.reduce((a: number, c: MoisLigne) => a + c.conge, 0)}j</td>
+                        <td className="px-3 py-3 text-center text-rose-500 text-xs">{moisFiltre.reduce((a: number, c: MoisLigne) => a + c.absences, 0)}j</td>
+                        <td className="px-3 py-3 text-center text-gray-500 text-xs">{moisFiltre.reduce((a: number, c: MoisLigne) => a + c.total, 0)}j</td>
                       </tr>
                     </tfoot>
                   </table>
                 </div>
+              </div>
               </div>
             )
           )}
