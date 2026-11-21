@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { jsPDF } from 'jspdf';
 import { dessinerGraphiquesPDF } from './pdfGraphiques';
-import { periodesVides, type StatsPeriodes } from './rapports';
+import { naturesVides, periodesVides, statsNatures, type StatsPeriodes } from './rapports';
 
 const stats = (nbDeps: number): StatsPeriodes => {
   const parDepartement = Array.from({ length: nbDeps }, (_, i) => ({
@@ -21,6 +21,19 @@ const dessiner = (s: StatsPeriodes, periodes: ('M' | 'T' | 'S' | 'HN')[] = []) =
 };
 
 describe('dessinerGraphiquesPDF', () => {
+  it('ajoute la répartition par nature (repos, congé, maladie…) quand elle est fournie', () => {
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const natures = statsNatures([{ natures: { ...naturesVides(), M: 5, R: 10, C: 3, MAL: 2, FE: 1 } }]);
+    const sans = dessinerGraphiquesPDF(new jsPDF({ unit: 'mm', format: 'a4' }), stats(2), {
+      x: 14, y: 28, largeur: 182, pageH: 297, unite: 'collaborateurs', periodes: [], nouvellePage: () => 20,
+    });
+    const avec = dessinerGraphiquesPDF(doc, stats(2), {
+      x: 14, y: 28, largeur: 182, pageH: 297, unite: 'collaborateurs', periodes: [], natures,
+      nouvellePage: () => { doc.addPage(); return 20; },
+    });
+    expect(avec).toBeGreaterThan(sans + 5 * 7 - 1);
+  });
+
   it('dessine donut + barres et renvoie une ordonnée de reprise sous le point de départ', () => {
     const { doc, fin } = dessiner(stats(3));
     expect(fin).toBeGreaterThan(28 + 46);

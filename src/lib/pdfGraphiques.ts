@@ -1,5 +1,9 @@
 import type jsPDF from 'jspdf';
-import { PERIODES, PERIODE_COULEUR, PERIODE_LABEL, periodeActive, type Periode, type StatsPeriodes } from './rapports';
+import { POSTE_LABEL } from './postes';
+import {
+  NATURES, NATURE_COULEUR, PERIODES, PERIODE_COULEUR, PERIODE_LABEL, formaterPourcentage, periodeActive,
+  type Periode, type StatsNatures, type StatsPeriodes,
+} from './rapports';
 
 /**
  * Graphiques statistiques dessinés directement dans un PDF jsPDF (vectoriel, net à l'impression) :
@@ -15,6 +19,8 @@ export interface OptionsGraphiquesPDF {
   pageH: number;
   unite: string;
   periodes: readonly Periode[];
+  /** Répartition de toutes les natures de poste (repos, congé, maladie…) : ajoutée en fin de bloc si fournie. */
+  natures?: StatsNatures;
   /** Ajoute une page et renvoie l'ordonnée de départ du contenu. */
   nouvellePage: () => number;
 }
@@ -137,6 +143,43 @@ export function dessinerGraphiquesPDF(doc: jsPDF, stats: StatsPeriodes, o: Optio
     doc.setTextColor(80, 80, 80);
     doc.text(String(dep.total), bx + 1.8, y + 4.4);
     y += HAUTEUR_LIGNE;
+  }
+
+  // ── Toutes les natures de poste : nombre et pourcentage ──
+  const nat = o.natures;
+  if (nat && nat.total > 0) {
+    const presentes = NATURES.filter(n => nat.parNature[n] > 0);
+    if (y + 10 + HAUTEUR_LIGNE > limite) y = nouvellePage();
+    y += 3;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(30, 30, 30);
+    doc.text('Répartition par nature', x, y + 3);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(110, 110, 110);
+    doc.text(`${nat.total} ${unite}`, x + largeur, y + 3, { align: 'right' });
+    y += 8;
+
+    const largeurLibelle = Math.min(48, largeur * 0.3);
+    const largeurBarre = largeur - largeurLibelle - 34;
+    for (const n of presentes) {
+      if (y + HAUTEUR_LIGNE > limite) y = nouvellePage();
+      const valeur = nat.parNature[n];
+      const pct = (valeur / nat.total) * 100;
+      const [r, g, b] = hexVersRgb(NATURE_COULEUR[n]);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(50, 50, 50);
+      doc.text(tronquer(doc, POSTE_LABEL[n], largeurLibelle - 3), x, y + 4.4);
+      doc.setFillColor(235, 236, 240);
+      doc.rect(x + largeurLibelle, y + 1.3, largeurBarre, 3.6, 'F');
+      doc.setFillColor(r, g, b);
+      doc.rect(x + largeurLibelle, y + 1.3, Math.max(0.6, (pct / 100) * largeurBarre), 3.6, 'F');
+      doc.setTextColor(50, 50, 50);
+      doc.text(`${valeur}  (${formaterPourcentage(pct)} %)`, x + largeur, y + 4.4, { align: 'right' });
+      y += HAUTEUR_LIGNE;
+    }
   }
 
   doc.setTextColor(30, 30, 30);

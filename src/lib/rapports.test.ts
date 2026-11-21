@@ -3,6 +3,10 @@ import { POSTES_TRAVAIL } from './postes';
 import {
   PERIODES,
   basculerPeriode,
+  compterNatures,
+  formaterPourcentage,
+  naturesVides,
+  statsNatures,
   filtrerHebdo,
   filtrerJournalier,
   filtrerMensuel,
@@ -25,10 +29,17 @@ const journalier: RayonLigne[] = [
       { nom: 'B', prenom: 'b', poste: 'S' },
       { nom: 'C', prenom: 'c', poste: 'M' },
     ],
+    natures: { ...naturesVides(), M: 2, S: 1, R: 3, C: 1 },
   },
   {
     rayonNom: 'Jouets', depNom: 'Bazar',
     collaborateurs: [{ nom: 'D', prenom: 'd', poste: 'T' }],
+    natures: { ...naturesVides(), T: 1, MAL: 1 },
+  },
+  {
+    rayonNom: 'Livres', depNom: 'Bazar',
+    collaborateurs: [],
+    natures: { ...naturesVides(), R: 2, FE: 1 },
   },
 ];
 
@@ -39,14 +50,15 @@ const hebdo: SemaineLigne[] = [
       { nom: 'A', prenom: 'a', postes: ['M', 'M', 'S', 'R', 'R', 'C', 'R'] },
       { nom: 'B', prenom: 'b', postes: ['R', 'R', 'R', 'R', 'R', 'R', 'R'] },
     ],
+    natures: { ...naturesVides(), M: 2, S: 1, R: 10, C: 1 },
   },
 ];
 
 const mensuel: MoisLigne[] = [
   { nom: 'A', prenom: 'a', rayonNom: 'Fruits', depNom: 'Frais', travail: 20, repos: 8, conge: 2, absences: 0, total: 30,
-    parPeriode: { M: 10, T: 2, S: 8, HN: 0 } },
+    parPeriode: { M: 10, T: 2, S: 8, HN: 0 }, natures: { ...naturesVides(), M: 10, T: 2, S: 8, R: 8, C: 2 } },
   { nom: 'B', prenom: 'b', rayonNom: 'Jouets', depNom: '', travail: 5, repos: 25, conge: 0, absences: 0, total: 30,
-    parPeriode: { M: 0, T: 5, S: 0, HN: 0 } },
+    parPeriode: { M: 0, T: 5, S: 0, HN: 0 }, natures: { ...naturesVides(), T: 5, R: 25 } },
 ];
 
 describe('PERIODES', () => {
@@ -83,8 +95,9 @@ describe('libellés', () => {
 });
 
 describe('filtrerJournalier', () => {
-  it('sans filtre, renvoie les données telles quelles', () => {
-    expect(filtrerJournalier(journalier, [])).toBe(journalier);
+  it('sans filtre, ne liste pas les rayons sans présent (ils restent dans les données pour les statistiques)', () => {
+    const r = filtrerJournalier(journalier, []);
+    expect(r.map(x => x.rayonNom)).toEqual(['Fruits', 'Jouets']);
   });
 
   it('ne garde que les collaborateurs de la période et retire les rayons vides', () => {
@@ -162,5 +175,37 @@ describe('statistiques', () => {
   it('cas limite : aucune donnée', () => {
     const s = statsJournalier([]);
     expect(s).toEqual({ parDepartement: [], global: periodesVides(), total: 0 });
+  });
+});
+
+describe('natures de poste', () => {
+  it('compterNatures compte chaque code et ignore les codes inconnus', () => {
+    expect(compterNatures(['M', 'M', 'R', 'C', 'MAL', 'XYZ'])).toEqual({ ...naturesVides(), M: 2, R: 1, C: 1, MAL: 1 });
+  });
+
+  it('statsNatures cumule tous les groupes, repos / congé / maladie / férié compris', () => {
+    const s = statsNatures(journalier);
+    expect(s.parNature).toEqual({ ...naturesVides(), M: 2, T: 1, S: 1, R: 5, C: 1, MAL: 1, FE: 1 });
+    expect(s.total).toBe(12);
+  });
+
+  it('statsNatures ne dépend pas du filtre de période (on lui passe les données non filtrées)', () => {
+    expect(statsNatures(journalier).total).toBe(12);
+    expect(statsNatures(filtrerJournalier(journalier, ['M'])).total).toBe(7); // données filtrées → moins de lignes
+  });
+
+  it('statsNatures sur hebdo et mensuel', () => {
+    expect(statsNatures(hebdo).total).toBe(14);
+    expect(statsNatures(mensuel).parNature.R).toBe(33);
+  });
+
+  it('aucune donnée → total 0', () => {
+    expect(statsNatures([])).toEqual({ parNature: naturesVides(), total: 0 });
+  });
+
+  it('formaterPourcentage : une décimale, virgule française', () => {
+    expect(formaterPourcentage(12.5)).toBe('12,5');
+    expect(formaterPourcentage(100)).toBe('100,0');
+    expect(formaterPourcentage(33.333)).toBe('33,3');
   });
 });

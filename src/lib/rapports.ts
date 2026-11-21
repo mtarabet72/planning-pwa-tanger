@@ -28,12 +28,59 @@ export const PERIODE_COULEUR: Record<Periode, string> = {
 
 export const estPeriode = (p: string): p is Periode => (PERIODES as readonly string[]).includes(p);
 
+// ─── Natures de poste (statistiques) : travail + repos, congé, maladie, férié, etc. ───────────
+
+/** Toutes les natures de poste, dans l'ordre d'affichage (travail d'abord, puis absences / repos). */
+export const NATURES = ['M', 'T', 'S', 'HN', 'R', 'C', 'MAL', 'AT', 'FOR', 'FE', 'JR'] as const satisfies readonly Poste[];
+
+export const NATURE_COULEUR: Record<Poste, string> = {
+  M: '#f59e0b', T: '#3b82f6', S: '#6366f1', HN: '#14b8a6',
+  R: '#9ca3af', C: '#10b981', MAL: '#f43f5e', AT: '#ef4444', FOR: '#8b5cf6', FE: '#f97316', JR: '#06b6d4',
+};
+
+export const estPoste = (p: string): p is Poste => (NATURES as readonly string[]).includes(p);
+
+export const naturesVides = (): Record<Poste, number> =>
+  ({ M: 0, T: 0, S: 0, HN: 0, R: 0, C: 0, MAL: 0, AT: 0, FOR: 0, FE: 0, JR: 0 });
+
+/** Compte les occurrences de chaque nature dans une liste de codes de poste (codes inconnus ignorés). */
+export function compterNatures(postes: Iterable<string>): Record<Poste, number> {
+  const n = naturesVides();
+  for (const p of postes) if (estPoste(p)) n[p]++;
+  return n;
+}
+
+export interface StatsNatures {
+  parNature: Record<Poste, number>;
+  total: number;
+}
+
+/** Cumule les natures de plusieurs groupes (rayons, grilles hebdo, collaborateurs du mois…). */
+export function statsNatures(groupes: readonly { natures: Record<Poste, number> }[]): StatsNatures {
+  const parNature = naturesVides();
+  let total = 0;
+  for (const g of groupes) {
+    for (const p of NATURES) {
+      parNature[p] += g.natures[p];
+      total += g.natures[p];
+    }
+  }
+  return { parNature, total };
+}
+
+/** Pourcentage à la française, une décimale : 12,5 */
+export const formaterPourcentage = (valeur: number): string =>
+  new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(valeur);
+
 // ─── Types des données de rapport ────────────────────────────────────────────
 
 export interface RayonLigne {
   rayonNom: string;
   depNom: string;
+  /** Collaborateurs en présence (périodes de travail) ce jour-là : c'est ce que la liste affiche. */
   collaborateurs: { nom: string; prenom: string; poste: Poste }[];
+  /** Toutes les natures de poste de ce jour-là (travail, repos, congé, maladie…) pour les statistiques. */
+  natures: Record<Poste, number>;
 }
 
 export interface SemaineLigne {
@@ -41,6 +88,8 @@ export interface SemaineLigne {
   depNom: string;
   /** `null` = case masquée par le filtre de période (jamais présent quand aucun filtre n'est actif). */
   collaborateurs: { nom: string; prenom: string; postes: (Poste | null)[] }[];
+  /** Natures de poste de toute la semaine, avant filtre de période (statistiques). */
+  natures: Record<Poste, number>;
 }
 
 export interface MoisLigne {
@@ -55,6 +104,8 @@ export interface MoisLigne {
   total: number;
   /** Nombre de jours par période de travail sur le mois. */
   parPeriode: Record<Periode, number>;
+  /** Nombre de jours par nature de poste sur le mois (statistiques ; non affecté par le filtre de période). */
+  natures: Record<Poste, number>;
 }
 
 export const periodesVides = (): Record<Periode, number> => ({ M: 0, T: 0, S: 0, HN: 0 });
@@ -85,7 +136,8 @@ export function mentionsFiltres(periodes: readonly Periode[], departementNom?: s
 }
 
 export function filtrerJournalier(data: RayonLigne[], periodes: readonly Periode[]): RayonLigne[] {
-  if (periodes.length === 0) return data;
+  // `data` contient aussi les rayons sans aucun présent (pour les statistiques de natures) : la liste ne les affiche pas.
+  if (periodes.length === 0) return data.filter(r => r.collaborateurs.length > 0);
   return data
     .map(r => ({ ...r, collaborateurs: r.collaborateurs.filter(c => periodeActive(periodes, c.poste)) }))
     .filter(r => r.collaborateurs.length > 0);
