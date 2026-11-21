@@ -8,6 +8,7 @@ import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 import { getLundi, addDays, formatDate, formatDisplay, parseDateIso, JOURS } from '../lib/dates';
 import { lireParLots, lireToutesLesPages } from '../lib/pagination';
+import { dessinerGraphiquesPDF } from '../lib/pdfGraphiques';
 import { type Poste, POSTE_STYLE_FLAT as POSTE_STYLE, POSTE_LABEL, estTravail, estAbsence } from '../lib/postes';
 import {
   PERIODES, estPeriode, periodesVides, filtrerJournalier, filtrerHebdo, filtrerMensuel,
@@ -339,6 +340,11 @@ export default function Rapports() {
     doc.text(`Total présents : ${total} collaborateur(s)`, margin, y);
     y += 8;
 
+    y = dessinerGraphiquesPDF(doc, statsJour, {
+      x: margin, y, largeur: pageW - margin * 2, pageH: 297, unite: 'collaborateurs', periodes,
+      nouvellePage: () => { doc.addPage(); return 20; },
+    });
+
     for (const rayon of journalierFiltre) {
       if (y > 260) { doc.addPage(); y = 20; }
       doc.setFillColor(240, 242, 255);
@@ -374,6 +380,20 @@ export default function Rapports() {
     const nameColW = 42;
     const colW = (pageW - margin * 2 - nameColW) / 7;
     let firstPage = true;
+
+    if (statsSemaine.total > 0) {
+      dessinerEntete(doc, {
+        pageW, margin,
+        titre: 'RAPPORT HEBDOMADAIRE — STATISTIQUES', titreSize: 12,
+        sousTitre: `Semaine du ${formatDisplay(semaine)} au ${formatDisplay(addDays(semaine, 6))}`, sousTitreSize: 8,
+        filtres: mentions,
+      });
+      dessinerGraphiquesPDF(doc, statsSemaine, {
+        x: margin, y: 28, largeur: pageW - margin * 2, pageH: 210, unite: 'jours-collaborateur', periodes,
+        nouvellePage: () => { doc.addPage(); return 20; },
+      });
+      firstPage = false;
+    }
 
     for (const rayon of hebdoFiltre) {
       if (!rayon.collaborateurs.length) continue;
@@ -465,7 +485,11 @@ export default function Rapports() {
       filtres: mentions,
     });
 
-    let y = 28;
+    let y = dessinerGraphiquesPDF(doc, statsMois, {
+      x: margin, y: 28, largeur: pageW - margin * 2, pageH: 297, unite: 'jours-collaborateur', periodes,
+      nouvellePage: () => { doc.addPage(); return 20; },
+    });
+    if (y > 255) { doc.addPage(); y = 20; }
     const colWidths = [40, 26, 20, 18, 18, 20, 20];
     const headers = ['Collaborateur', 'Rayon', 'Travail', 'Repos', 'Congé', 'Absence', 'Total'];
     doc.setFillColor(240, 242, 255);
