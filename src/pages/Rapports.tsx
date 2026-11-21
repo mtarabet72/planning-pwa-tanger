@@ -34,6 +34,11 @@ function getMonth(date: Date): { debut: Date; fin: Date } {
 
 type TabType = 'journalier' | 'hebdomadaire' | 'mensuel';
 
+/** Libellé du groupe « Encadrement » (Chefs de Rayon & Assistantes) dans les listes, au même titre qu'un rayon. */
+const ENCADREMENT = 'Encadrement';
+
+const ORDRE_POSTE: Record<Poste, number> = { M: 0, T: 1, S: 2, HN: 3, R: 4, C: 5, MAL: 6, AT: 7, FOR: 8, FE: 9, JR: 10 };
+
 const moisCourant = (): string => {
   const n = new Date();
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
@@ -169,6 +174,27 @@ export default function Rapports() {
     return (data ?? []) as unknown as { id: string; nom: string; departements: { nom: string } | null }[];
   }
 
+  /**
+   * Départements dont on affiche l'encadrement (Chefs de Rayon & Assistantes, planning par département) :
+   * administrateur et chefs de département uniquement, comme l'écran Encadrement ; mêmes filtres que les rayons.
+   */
+  async function chargerDepartementsEncadrement(): Promise<{ id: string; nom: string }[]> {
+    if (!isAdmin && !isChefDep) return [];
+    let q = supabase.from('departements').select('id, nom').order('nom');
+    if (isChefDep && (profile?.departement_ids?.length ?? 0) > 0) q = q.in('id', profile!.departement_ids);
+    else if (filterDep) q = q.eq('id', filterDep);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  }
+
+  async function chargerCollaborateursEncadrement(depIds: string[]) {
+    return lireParLots(depIds, (lot, d, f) =>
+      supabase.from('collaborateurs').select('id, nom, prenom, departement_id')
+        .in('departement_id', lot).eq('actif', true).in('fonction', ['chef_rayon', 'assistante'])
+        .order('nom').order('id').range(d, f));
+  }
+
   // Chargements : requêtes groupées (quelques appels au total, indépendants du nombre de rayons /
   // collaborateurs) + pagination au-delà de 1000 lignes (cf. lib/pagination.ts).
 
@@ -201,13 +227,41 @@ export default function Rapports() {
       liste.push({ nom: col.nom, prenom: col.prenom, poste: l.poste as Poste });
     }
 
-    const ordre: Record<Poste, number> = { M: 0, T: 1, S: 2, HN: 3, R: 4, C: 5, MAL: 6, AT: 7, FOR: 8, FE: 9, JR: 10 };
     const result: RayonLigne[] = [];
     for (const rayon of rayons) {
       const cs = parRayon.get(rayon.id);
       if (!cs?.length) continue;
-      cs.sort((a, b) => ordre[a.poste] - ordre[b.poste] || a.nom.localeCompare(b.nom));
+      cs.sort((a, b) => ORDRE_POSTE[a.poste] - ORDRE_POSTE[b.poste] || a.nom.localeCompare(b.nom));
       result.push({ rayonNom: rayon.nom, depNom: rayon.departements?.nom ?? '', collaborateurs: cs });
+    }
+
+    // Encadrement (Chefs de Rayon & Assistantes) : un groupe par département, après les rayons
+    const deps = await chargerDepartementsEncadrement();
+    if (deps.length) {
+      const encPlans = await lireParLots(deps.map(d => d.id), (lot, d, f) =>
+        supabase.from('plannings_encadrement').select('id, departement_id').in('departement_id', lot).eq('semaine_debut', lundi).order('id').range(d, f));
+      const depParPlan = new Map(encPlans.map(p => [p.id, p.departement_id]));
+      const encLignes = await lireParLots(encPlans.map(p => p.id), (lot, d, f) =>
+        supabase.from('planning_encadrement_lignes').select('id, planning_id, collaborateur_id, poste')
+          .in('planning_id', lot).eq('jour', date).in('poste', [...PERIODES]).order('id').range(d, f));
+      const encCols = await chargerCollaborateursEncadrement(deps.map(d => d.id));
+      const encColParId = new Map(encCols.map(c => [c.id, c]));
+
+      const parDep = new Map<string, RayonLigne['collaborateurs']>();
+      for (const l of encLignes) {
+        const depId = depParPlan.get(l.planning_id);
+        const col = encColParId.get(l.collaborateur_id);
+        if (!depId || !col) continue;
+        let liste = parDep.get(depId);
+        if (!liste) { liste = []; parDep.set(depId, liste); }
+        liste.push({ nom: col.nom, prenom: col.prenom, poste: l.poste as Poste });
+      }
+      for (const dep of deps) {
+        const cs = parDep.get(dep.id);
+        if (!cs?.length) continue;
+        cs.sort((a, b) => ORDRE_POSTE[a.poste] - ORDRE_POSTE[b.poste] || a.nom.localeCompare(b.nom));
+        result.push({ rayonNom: ENCADREMENT, depNom: dep.nom, collaborateurs: cs });
+      }
     }
     if (estCourant()) setJournalierData(result);
   }
@@ -254,6 +308,35 @@ export default function Rapports() {
         })),
       });
     }
+
+    // Encadrement (Chefs de Rayon & Assistantes) : une grille par département, après les rayons
+    const deps = await chargerDepartementsEncadrement();
+    if (deps.length) {
+      const depIds = deps.map(d => d.id);
+      const encCols = await chargerCollaborateursEncadrement(depIds);
+      const encPlans = await lireParLots(depIds, (lot, d, f) =>
+        supabase.from('plannings_encadrement').select('id, departement_id').in('departement_id', lot).eq('semaine_debut', debut).order('id').range(d, f));
+      const planParDep = new Map(encPlans.map(p => [p.departement_id, p.id]));
+      const encLignes = await lireParLots(encPlans.map(p => p.id), (lot, d, f) =>
+        supabase.from('planning_encadrement_lignes').select('id, planning_id, collaborateur_id, jour, poste')
+          .in('planning_id', lot).gte('jour', debut).lte('jour', fin).order('id').range(d, f));
+      const posteEnc = new Map(encLignes.map(l => [`${l.planning_id}|${l.collaborateur_id}|${l.jour}`, l.poste as Poste]));
+
+      for (const dep of deps) {
+        const cs = encCols.filter(c => c.departement_id === dep.id);
+        if (!cs.length) continue;
+        const planId = planParDep.get(dep.id);
+        result.push({
+          rayonNom: ENCADREMENT,
+          depNom: dep.nom,
+          collaborateurs: cs.map(c => ({
+            nom: c.nom,
+            prenom: c.prenom,
+            postes: jours.map(j => (planId ? posteEnc.get(`${planId}|${c.id}|${formatDate(j)}`) : undefined) ?? 'R'),
+          })),
+        });
+      }
+    }
     if (estCourant()) setHebdoData(result);
   }
 
@@ -278,7 +361,6 @@ export default function Rapports() {
     const colsRaw = perimetre
       ? await lireParLots(perimetre, (lot, d, f) => colQuery().in('rayon_id', lot).range(d, f))
       : await lireToutesLesPages((d, f) => colQuery().range(d, f));
-    if (!colsRaw.length) { if (estCourant()) setMoisData([]); return; }
     const cols = (colsRaw as unknown as { id: string; nom: string; prenom: string; rayons: { nom: string; departements: { nom: string } | null } | null }[])
       .sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
 
@@ -288,15 +370,18 @@ export default function Rapports() {
         .in('collaborateur_id', lot).gte('jour', formatDate(debut)).lte('jour', formatDate(fin)).order('id').range(d, f));
 
     // Regroupement unique par collaborateur (évite un filter() sur toutes les lignes pour chaque collaborateur).
-    const postesParCollab = new Map<string, string[]>();
-    for (const l of lignes) {
-      let arr = postesParCollab.get(l.collaborateur_id);
-      if (!arr) { arr = []; postesParCollab.set(l.collaborateur_id, arr); }
-      arr.push(l.poste);
-    }
+    const grouper = (items: { collaborateur_id: string; poste: string }[]) => {
+      const m = new Map<string, string[]>();
+      for (const l of items) {
+        let arr = m.get(l.collaborateur_id);
+        if (!arr) { arr = []; m.set(l.collaborateur_id, arr); }
+        arr.push(l.poste);
+      }
+      return m;
+    };
+    const postesParCollab = grouper(lignes);
 
-    const result: MoisLigne[] = cols.map(c => {
-      const postes = postesParCollab.get(c.id) ?? [];
+    const ligneMois = (nom: string, prenom: string, rayonNom: string, depNom: string, postes: string[]): MoisLigne => {
       const parPeriode = periodesVides();
       let repos = 0, conge = 0, absences = 0;
       for (const p of postes) {
@@ -306,10 +391,7 @@ export default function Rapports() {
         if (estAbsence(p)) absences++;
       }
       return {
-        nom: c.nom,
-        prenom: c.prenom,
-        rayonNom: c.rayons?.nom ?? '—',
-        depNom: c.rayons?.departements?.nom ?? '',
+        nom, prenom, rayonNom, depNom,
         travail: PERIODES.reduce((a, p) => a + parPeriode[p], 0),
         repos,
         conge,
@@ -317,7 +399,24 @@ export default function Rapports() {
         total: postes.length,
         parPeriode,
       };
-    });
+    };
+
+    const result: MoisLigne[] = cols.map(c =>
+      ligneMois(c.nom, c.prenom, c.rayons?.nom ?? '—', c.rayons?.departements?.nom ?? '', postesParCollab.get(c.id) ?? []));
+
+    // Encadrement (Chefs de Rayon & Assistantes) : lignes du planning d'encadrement, ajoutées après les rayons
+    const deps = await chargerDepartementsEncadrement();
+    if (deps.length) {
+      const nomDep = new Map(deps.map(d => [d.id, d.nom]));
+      const encCols = await chargerCollaborateursEncadrement(deps.map(d => d.id));
+      const encLignes = await lireParLots(encCols.map(c => c.id), (lot, d, f) =>
+        supabase.from('planning_encadrement_lignes').select('id, collaborateur_id, poste')
+          .in('collaborateur_id', lot).gte('jour', formatDate(debut)).lte('jour', formatDate(fin)).order('id').range(d, f));
+      const postesEnc = grouper(encLignes);
+      encCols
+        .sort((a, b) => (nomDep.get(a.departement_id ?? '') ?? '').localeCompare(nomDep.get(b.departement_id ?? '') ?? '', 'fr') || a.nom.localeCompare(b.nom, 'fr'))
+        .forEach(c => result.push(ligneMois(c.nom, c.prenom, ENCADREMENT, nomDep.get(c.departement_id ?? '') ?? '', postesEnc.get(c.id) ?? [])));
+    }
     if (estCourant()) setMoisData(result);
   }
 
