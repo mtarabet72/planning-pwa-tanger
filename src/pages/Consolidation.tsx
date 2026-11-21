@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Loader2, Printer, FileText, LayoutGrid } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { canAccessAdmin, isAccueil } from '../types';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 import { getLundi, addDays, formatDate, formatDisplay, formatDisplayLong, getNumeroSemaine, JOURS } from '../lib/dates';
+import { lireParLots, lireToutesLesPages } from '../lib/pagination';
 
 type Poste = 'M' | 'T' | 'S' | 'R' | 'C' | 'HN' | 'MAL' | 'AT' | 'FOR' | 'FE' | 'JR';
 
@@ -134,6 +136,8 @@ function GrilleTable({ rows, grille, jours }: { rows: GrilleRow[]; grille: Recor
 
 export default function Consolidation() {
   const { profile } = useAuth();
+  const { toast } = useToast();
+  const requeteRef = useRef(0);
   const isAdmin = canAccessAdmin(profile?.role ?? 'chef_rayon');
   const estAccueil = isAccueil(profile?.role ?? 'chef_rayon');
 
@@ -153,171 +157,201 @@ export default function Consolidation() {
 
   useEffect(() => { loadAll(); }, [semaine]);
 
-  async function loadAll() {
-    setLoading(true);
+  type Grille = Record<string, Record<string, Poste>>;
+  type LigneBrute = { collaborateur_id: string; jour: string; poste: string };
 
-    if ((profile?.departement_ids?.length ?? 0) > 0) {
-      const { data: deps } = await supabase
-        .from('departements').select('nom').in('id', profile!.departement_ids);
-      setDepNomGlobal((deps ?? []).map((d: { nom: string }) => d.nom).join(', '));
-    } else if (isAdmin || estAccueil) {
-      setDepNomGlobal('Tous les départements');
+  /** Indexe des lignes de planning en grille collaborateur → jour → poste. */
+  function versGrille(lignes: LigneBrute[]): Grille {
+    const g: Grille = {};
+    for (const l of lignes) {
+      if (!g[l.collaborateur_id]) g[l.collaborateur_id] = {};
+      g[l.collaborateur_id][l.jour] = l.poste as Poste;
     }
+    return g;
+  }
+
+  /** Sans planning pour la semaine : tout le monde est au repos. */
+  function grilleRepos(ids: string[]): Grille {
+    const g: Grille = {};
+    for (const id of ids) {
+      g[id] = {};
+      for (const j of jours) g[id][formatDate(j)] = 'R';
+    }
+    return g;
+  }
+
+  /** Regroupe par clé en conservant l'ordre d'arrivée. */
+  function grouperPar<T>(items: T[], cle: (t: T) => string | null): Map<string, T[]> {
+    const m = new Map<string, T[]>();
+    for (const it of items) {
+      const k = cle(it);
+      if (k === null) continue;
+      let arr = m.get(k);
+      if (!arr) { arr = []; m.set(k, arr); }
+      arr.push(it);
+    }
+    return m;
+  }
+
+  async function loadAll() {
+    const id = ++requeteRef.current;
+    const estCourant = () => id === requeteRef.current; // ignore les réponses périmées (changement rapide de semaine)
+    setLoading(true);
+    try {
+      await chargerTout(estCourant);
+    } catch (e) {
+      if (estCourant()) toast.error(`Chargement de la consolidation impossible : ${e instanceof Error ? e.message : 'erreur inconnue'}`);
+    } finally {
+      if (estCourant()) setLoading(false);
+    }
+  }
+
+  /**
+   * Chargement en 3 « vagues » de requêtes groupées (au lieu de 3 requêtes successives par rayon et 4 par
+   * département) : 1) rayons + plannings permanence/direction ; 2) collaborateurs et plannings de tous les
+   * rayons / départements d'un coup ; 3) lignes de planning. Pagination au-delà de 1000 lignes (lib/pagination.ts).
+   */
+  async function chargerTout(estCourant: () => boolean) {
+    const debut = formatDate(semaine);
+    const avecDirection = isAdmin || estAccueil;
+    const depIdsProfil = profile?.departement_ids ?? [];
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rayQuery: any = supabase.from('rayons').select('id, nom, numero, departement_id, departements(nom)').eq('actif', true).order('nom');
-    if (profile?.role === 'chef_departement' && (profile.departement_ids?.length ?? 0) > 0) {
-      rayQuery = rayQuery.in('departement_id', profile.departement_ids);
+    if (profile?.role === 'chef_departement' && depIdsProfil.length > 0) {
+      rayQuery = rayQuery.in('departement_id', depIdsProfil);
     }
-    const { data: rayons } = await rayQuery;
-    if (!rayons?.length) { setRayonsData([]); setLoading(false); return; }
 
-    const debut = formatDate(semaine);
-    const result: RayonData[] = [];
+    // ── Vague 1 : requêtes indépendantes, en parallèle ──
+    const [depsProfil, raysRes, permPlanRes, dirPlanRes, dirColsRes] = await Promise.all([
+      depIdsProfil.length > 0 ? supabase.from('departements').select('nom').in('id', depIdsProfil) : Promise.resolve(null),
+      rayQuery,
+      supabase.from('plannings_permanence').select('id').eq('type', 'permanence').eq('semaine_debut', debut).limit(1).maybeSingle(),
+      avecDirection
+        ? supabase.from('plannings_permanence').select('id').eq('type', 'direction').eq('semaine_debut', debut).limit(1).maybeSingle()
+        : Promise.resolve(null),
+      avecDirection
+        ? supabase.from('collaborateurs').select('id, nom, prenom, departements(nom)').eq('fonction', 'chef_departement').eq('actif', true).order('nom')
+        : Promise.resolve(null),
+    ]);
+    for (const r of [depsProfil, raysRes, permPlanRes, dirPlanRes, dirColsRes]) {
+      if (r?.error) throw new Error(r.error.message);
+    }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const rayon of rayons as any[]) {
-      const { data: cols } = await supabase
-        .from('collaborateurs').select('id, nom, prenom')
-        .eq('rayon_id', rayon.id).eq('actif', true)
-        .neq('fonction', 'chef_rayon').order('nom');
+    if (!estCourant()) return;
+    if (depsProfil) setDepNomGlobal((depsProfil.data ?? []).map((d: { nom: string }) => d.nom).join(', '));
+    else if (avecDirection) setDepNomGlobal('Tous les départements');
 
-      const { data: plan } = await supabase
-        .from('plannings').select('id')
-        .eq('rayon_id', rayon.id).eq('semaine_debut', debut).single();
+    const rayons = (raysRes.data ?? []) as { id: string; nom: string; numero: string | null; departement_id: string; departements: { nom: string } | null }[];
+    if (!rayons.length) { setRayonsData([]); return; }
+    const rayonIds = rayons.map(r => r.id);
+    const depIds = Array.from(new Set(rayons.map(r => r.departement_id)));
+    const permPlanId = permPlanRes.data?.id ?? null;
+    const dirPlanId = dirPlanRes?.data?.id ?? null;
 
-      const grille: Record<string, Record<string, Poste>> = {};
+    // ── Vague 2 : tout ce qui dépend des rayons / départements, en parallèle ──
+    const [cols, plans, depRows, encCols, encPlans, permMembres, permLignes, dirLignes] = await Promise.all([
+      lireParLots(rayonIds, (lot, d, f) =>
+        supabase.from('collaborateurs').select('id, nom, prenom, rayon_id')
+          .in('rayon_id', lot).eq('actif', true).neq('fonction', 'chef_rayon').order('nom').order('id').range(d, f)),
+      lireParLots(rayonIds, (lot, d, f) =>
+        supabase.from('plannings').select('id, rayon_id').in('rayon_id', lot).eq('semaine_debut', debut).order('id').range(d, f)),
+      lireParLots(depIds, (lot, d, f) =>
+        supabase.from('departements').select('id, nom').in('id', lot).order('id').range(d, f)),
+      lireParLots(depIds, (lot, d, f) =>
+        supabase.from('collaborateurs').select('id, nom, prenom, fonction, departement_id, rayons(nom)')
+          .in('departement_id', lot).eq('actif', true).in('fonction', ['chef_rayon', 'assistante'])
+          .order('fonction').order('nom').order('id').range(d, f)),
+      lireParLots(depIds, (lot, d, f) =>
+        supabase.from('plannings_encadrement').select('id, departement_id').in('departement_id', lot).eq('semaine_debut', debut).order('id').range(d, f)),
+      permPlanId
+        ? lireToutesLesPages((d, f) =>
+            supabase.from('permanence_membres').select('id, collaborateur_id, collaborateurs(nom, prenom, rayons(nom))')
+              .eq('planning_id', permPlanId).order('id').range(d, f))
+        : Promise.resolve([]),
+      permPlanId
+        ? lireToutesLesPages((d, f) =>
+            supabase.from('permanence_lignes').select('id, collaborateur_id, jour, poste').eq('planning_id', permPlanId).order('id').range(d, f))
+        : Promise.resolve([]),
+      dirPlanId
+        ? lireToutesLesPages((d, f) =>
+            supabase.from('permanence_lignes').select('id, collaborateur_id, jour, poste').eq('planning_id', dirPlanId).order('id').range(d, f))
+        : Promise.resolve([]),
+    ]);
 
-      if (plan) {
-        const { data: lignes } = await supabase
-          .from('planning_lignes').select('*').eq('planning_id', plan.id);
-        for (const l of lignes ?? []) {
-          if (!grille[l.collaborateur_id]) grille[l.collaborateur_id] = {};
-          grille[l.collaborateur_id][l.jour] = l.poste as Poste;
-        }
-      } else {
-        for (const c of cols ?? []) {
-          grille[c.id] = {};
-          for (const j of jours) grille[c.id][formatDate(j)] = 'R';
-        }
-      }
+    // ── Vague 3 : lignes des plannings de rayons et d'encadrement ──
+    const [lignes, encLignes] = await Promise.all([
+      lireParLots(plans.map(p => p.id), (lot, d, f) =>
+        supabase.from('planning_lignes').select('id, planning_id, collaborateur_id, jour, poste').in('planning_id', lot).order('id').range(d, f)),
+      lireParLots(encPlans.map(p => p.id), (lot, d, f) =>
+        supabase.from('planning_encadrement_lignes').select('id, planning_id, collaborateur_id, jour, poste').in('planning_id', lot).order('id').range(d, f)),
+    ]);
 
-      result.push({
+    // ── Assemblage : rayons ──
+    const colsParRayon = grouperPar(cols, c => c.rayon_id);
+    const planParRayon = new Map(plans.map(p => [p.rayon_id, p.id]));
+    const lignesParPlan = grouperPar(lignes, l => l.planning_id);
+    const rayonsResult: RayonData[] = rayons.map(rayon => {
+      const cs = (colsParRayon.get(rayon.id) ?? []).map(c => ({ id: c.id, nom: c.nom, prenom: c.prenom }));
+      const planId = planParRayon.get(rayon.id);
+      return {
         id: rayon.id,
         nom: rayon.nom,
         numero: rayon.numero,
         depNom: rayon.departements?.nom ?? '—',
-        collaborateurs: (cols as Collaborateur[]) ?? [],
-        grille,
-        hasPlanning: !!plan,
+        collaborateurs: cs,
+        grille: planId ? versGrille(lignesParPlan.get(planId) ?? []) : grilleRepos(cs.map(c => c.id)),
+        hasPlanning: !!planId,
+      };
+    });
+
+    // ── Assemblage : encadrement (Chefs de Rayon / Assistantes), par département ──
+    const nomDep = new Map(depRows.map(d => [d.id, d.nom]));
+    const encColsParDep = grouperPar(encCols, c => c.departement_id);
+    const encPlanParDep = new Map(encPlans.map(p => [p.departement_id, p.id]));
+    const encLignesParPlan = grouperPar(encLignes, l => l.planning_id);
+    const encResult: EncadrementData[] = [];
+    for (const depId of depIds) {
+      // Cf. Departements.tsx : `rayons` est déduit comme un tableau par le générateur de types,
+      // alors que PostgREST renvoie un objet unique pour cette relation many-to-one.
+      const liste = (encColsParDep.get(depId) ?? []) as unknown as { id: string; nom: string; prenom: string; fonction: string; rayons: { nom: string } | null }[];
+      if (!liste.length) continue;
+      const planId = encPlanParDep.get(depId);
+      encResult.push({
+        departementId: depId,
+        depNom: nomDep.get(depId) ?? '—',
+        collaborateurs: liste.map(c => ({ id: c.id, nom: c.nom, prenom: c.prenom, fonction: c.fonction, rayonNom: c.rayons?.nom ?? '—' })),
+        grille: planId ? versGrille(encLignesParPlan.get(planId) ?? []) : grilleRepos(liste.map(c => c.id)),
+        hasPlanning: !!planId,
       });
     }
 
-    setRayonsData(result);
-    if (result.length > 0 && (!activeRayon || !result.find(r => r.id === activeRayon))) {
-      setActiveRayon(result[0].id);
-      setActiveDep(result[0].depNom);
-    }
+    // ── Assemblage : permanence (magasin, non scopée par département) ──
+    const membres = (permMembres as unknown as { collaborateur_id: string; collaborateurs: { nom: string; prenom: string; rayons: { nom: string } | null } | null }[]).map(m => ({
+      id: m.collaborateur_id,
+      nom: m.collaborateurs?.nom ?? '',
+      prenom: m.collaborateurs?.prenom ?? '',
+      rayonNom: m.collaborateurs?.rayons?.nom ?? '—',
+    }));
 
-    // ---- Encadrement (Chefs de Rayon / Assistantes), par département ----
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const depIds = Array.from(new Set((rayons as any[]).map(r => r.departement_id as string)));
-    const encResult: EncadrementData[] = [];
-    for (const depId of depIds) {
-      const { data: depRow } = await supabase.from('departements').select('nom').eq('id', depId).single();
-      const { data: encCols } = await supabase
-        .from('collaborateurs').select('id, nom, prenom, fonction, rayons(nom)')
-        .eq('departement_id', depId).eq('actif', true)
-        .in('fonction', ['chef_rayon', 'assistante']).order('fonction').order('nom');
+    // ── Assemblage : direction (Chefs de Département) — réservé à l'administrateur et au rôle accueil ──
+    const dirCollaborateurs = ((dirColsRes?.data ?? []) as unknown as { id: string; nom: string; prenom: string; departements: { nom: string } | null }[])
+      .map(c => ({ id: c.id, nom: c.nom, prenom: c.prenom, depNom: c.departements?.nom ?? '—' }));
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const encColsList: EncadrementCollaborateur[] = ((encCols ?? []) as any[]).map(c => ({
-        id: c.id, nom: c.nom, prenom: c.prenom, fonction: c.fonction, rayonNom: c.rayons?.nom ?? '—',
-      }));
-
-      const { data: encPlan } = await supabase
-        .from('plannings_encadrement').select('id').eq('departement_id', depId).eq('semaine_debut', debut).single();
-
-      const encGrille: Record<string, Record<string, Poste>> = {};
-      if (encPlan) {
-        const { data: encLignes } = await supabase
-          .from('planning_encadrement_lignes').select('*').eq('planning_id', encPlan.id);
-        for (const l of encLignes ?? []) {
-          if (!encGrille[l.collaborateur_id]) encGrille[l.collaborateur_id] = {};
-          encGrille[l.collaborateur_id][l.jour] = l.poste as Poste;
-        }
-      } else {
-        for (const c of encColsList) {
-          encGrille[c.id] = {};
-          for (const j of jours) encGrille[c.id][formatDate(j)] = 'R';
-        }
-      }
-
-      if (encColsList.length) {
-        encResult.push({
-          departementId: depId,
-          depNom: depRow?.nom ?? '—',
-          collaborateurs: encColsList,
-          grille: encGrille,
-          hasPlanning: !!encPlan,
-        });
-      }
+    // Application groupée de l'état, uniquement si cette requête est toujours la plus récente
+    if (!estCourant()) return;
+    setRayonsData(rayonsResult);
+    if (rayonsResult.length > 0 && (!activeRayon || !rayonsResult.find(r => r.id === activeRayon))) {
+      setActiveRayon(rayonsResult[0].id);
+      setActiveDep(rayonsResult[0].depNom);
     }
     setEncadrementData(encResult);
-
-    // ---- Permanence (magasin, non scopée par département) ----
-    const { data: permPlan } = await supabase
-      .from('plannings_permanence').select('id').eq('type', 'permanence').eq('semaine_debut', debut).single();
-
-    let permMembresList: PermanenceCollaborateur[] = [];
-    const permGrilleObj: Record<string, Record<string, Poste>> = {};
-    if (permPlan) {
-      const { data: membresRaw } = await supabase
-        .from('permanence_membres').select('collaborateur_id, collaborateurs(nom, prenom, rayons(nom))')
-        .eq('planning_id', permPlan.id);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      permMembresList = ((membresRaw ?? []) as any[]).map(m => ({
-        id: m.collaborateur_id, nom: m.collaborateurs?.nom ?? '', prenom: m.collaborateurs?.prenom ?? '',
-        rayonNom: m.collaborateurs?.rayons?.nom ?? '—',
-      }));
-      const { data: permLignes } = await supabase
-        .from('permanence_lignes').select('*').eq('planning_id', permPlan.id);
-      for (const l of permLignes ?? []) {
-        if (!permGrilleObj[l.collaborateur_id]) permGrilleObj[l.collaborateur_id] = {};
-        permGrilleObj[l.collaborateur_id][l.jour] = l.poste as Poste;
-      }
-    }
-    setPermanenceData({ membres: permMembresList, grille: permGrilleObj, hasPlanning: !!permPlan });
-
-    // ---- Direction (Chefs de Département) — réservé à l'administrateur et au rôle accueil ----
-    if (isAdmin || estAccueil) {
-      const { data: dirCols } = await supabase
-        .from('collaborateurs').select('id, nom, prenom, departements(nom)')
-        .eq('fonction', 'chef_departement').eq('actif', true).order('nom');
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const dirColsList: DirectionCollaborateur[] = ((dirCols ?? []) as any[]).map(c => ({
-        id: c.id, nom: c.nom, prenom: c.prenom, depNom: c.departements?.nom ?? '—',
-      }));
-
-      const { data: dirPlan } = await supabase
-        .from('plannings_permanence').select('id').eq('type', 'direction').eq('semaine_debut', debut).single();
-
-      const dirGrilleObj: Record<string, Record<string, Poste>> = {};
-      if (dirPlan) {
-        const { data: dirLignes } = await supabase
-          .from('permanence_lignes').select('*').eq('planning_id', dirPlan.id);
-        for (const l of dirLignes ?? []) {
-          if (!dirGrilleObj[l.collaborateur_id]) dirGrilleObj[l.collaborateur_id] = {};
-          dirGrilleObj[l.collaborateur_id][l.jour] = l.poste as Poste;
-        }
-      }
-      setDirectionData({ collaborateurs: dirColsList, grille: dirGrilleObj, hasPlanning: !!dirPlan });
-    } else {
-      setDirectionData({ collaborateurs: [], grille: {}, hasPlanning: false });
-    }
-
-    setLoading(false);
+    setPermanenceData({ membres, grille: versGrille(permLignes), hasPlanning: !!permPlanId });
+    setDirectionData(
+      avecDirection
+        ? { collaborateurs: dirCollaborateurs, grille: versGrille(dirLignes), hasPlanning: !!dirPlanId }
+        : { collaborateurs: [], grille: {}, hasPlanning: false },
+    );
   }
 
   function handleExportPDF() {
