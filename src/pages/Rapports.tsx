@@ -11,11 +11,12 @@ import { lireParLots, lireToutesLesPages } from '../lib/pagination';
 import { dessinerGraphiquesPDF } from '../lib/pdfGraphiques';
 import { type Poste, POSTE_STYLE_FLAT as POSTE_STYLE, POSTE_LABEL, estTravail, estAbsence } from '../lib/postes';
 import {
-  PERIODES, estPeriode, periodesVides, filtrerJournalier, filtrerHebdo, filtrerMensuel,
+  PERIODES, estPeriode, estPoste, periodesVides, compterNatures, naturesVides, statsNatures, filtrerJournalier, filtrerHebdo, filtrerMensuel,
   statsJournalier, statsHebdo, statsMensuel, mentionsFiltres,
-  type Periode, type RayonLigne, type SemaineLigne, type MoisLigne, type StatsPeriodes,
+  type Periode, type RayonLigne, type SemaineLigne, type MoisLigne, type StatsPeriodes, type StatsNatures,
 } from '../lib/rapports';
 import RapportFiltres from '../components/RapportFiltres';
+import RapportNatures from '../components/RapportNatures';
 
 // recharts est lourd : chargé à la demande, uniquement quand le bloc de statistiques est affiché.
 const RapportGraphiques = lazy(() => import('../components/RapportGraphiques'));
@@ -121,6 +122,11 @@ export default function Rapports() {
   const statsSemaine = useMemo(() => statsHebdo(hebdoFiltre), [hebdoFiltre]);
   const statsMois = useMemo(() => statsMensuel(moisFiltre), [moisFiltre]);
 
+  // Natures de poste (repos, congé, maladie…) : toujours sur les données non filtrées par période.
+  const naturesJour = useMemo(() => statsNatures(journalierData), [journalierData]);
+  const naturesSemaine = useMemo(() => statsNatures(hebdoData), [hebdoData]);
+  const naturesMois = useMemo(() => statsNatures(moisData), [moisData]);
+
   const departementNom = filterDep ? departements.find(d => d.id === filterDep)?.nom ?? null : null;
   const mentions = useMemo(() => mentionsFiltres(periodes, departementNom), [periodes, departementNom]);
 
@@ -207,32 +213,40 @@ export default function Rapports() {
       supabase.from('plannings').select('id, rayon_id').in('rayon_id', lot).eq('semaine_debut', lundi).order('id').range(d, f));
     const rayonParPlan = new Map(plans.map(p => [p.id, p.rayon_id]));
 
-    // Toutes les tranches de présence (M, T, S, HN) — pas seulement Matin
+    // Toutes les lignes du jour (travail, repos, congé, maladie…) : la liste n'affiche que les présents (M, T, S, HN),
+    // les statistiques de natures comptent tout.
     const lignes = await lireParLots(plans.map(p => p.id), (lot, d, f) =>
       supabase.from('planning_lignes').select('id, planning_id, collaborateur_id, poste')
-        .in('planning_id', lot).eq('jour', date).in('poste', [...PERIODES]).order('id').range(d, f));
+        .in('planning_id', lot).eq('jour', date).order('id').range(d, f));
 
-    const colIds = [...new Set(lignes.map(l => l.collaborateur_id))];
+    const colIds = [...new Set(lignes.filter(l => estPeriode(l.poste)).map(l => l.collaborateur_id))];
     const cols = await lireParLots(colIds, (lot, d, f) =>
       supabase.from('collaborateurs').select('id, nom, prenom').in('id', lot).order('id').range(d, f));
     const colParId = new Map(cols.map(c => [c.id, c]));
 
     const parRayon = new Map<string, RayonLigne['collaborateurs']>();
+    const naturesParRayon = new Map<string, Record<Poste, number>>();
     for (const l of lignes) {
       const rayonId = rayonParPlan.get(l.planning_id);
+      if (!rayonId) continue;
+      let nat = naturesParRayon.get(rayonId);
+      if (!nat) { nat = naturesVides(); naturesParRayon.set(rayonId, nat); }
+      if (estPoste(l.poste)) nat[l.poste]++;
+
       const col = colParId.get(l.collaborateur_id);
-      if (!rayonId || !col) continue;
+      if (!col || !estPeriode(l.poste)) continue;
       let liste = parRayon.get(rayonId);
       if (!liste) { liste = []; parRayon.set(rayonId, liste); }
-      liste.push({ nom: col.nom, prenom: col.prenom, poste: l.poste as Poste });
+      liste.push({ nom: col.nom, prenom: col.prenom, poste: l.poste });
     }
 
     const result: RayonLigne[] = [];
     for (const rayon of rayons) {
-      const cs = parRayon.get(rayon.id);
-      if (!cs?.length) continue;
+      const natures = naturesParRayon.get(rayon.id);
+      if (!natures) continue; // aucun planning enregistré ce jour-là pour ce rayon
+      const cs = parRayon.get(rayon.id) ?? [];
       cs.sort((a, b) => ORDRE_POSTE[a.poste] - ORDRE_POSTE[b.poste] || a.nom.localeCompare(b.nom));
-      result.push({ rayonNom: rayon.nom, depNom: rayon.departements?.nom ?? '', collaborateurs: cs });
+      result.push({ rayonNom: rayon.nom, depNom: rayon.departements?.nom ?? '', collaborateurs: cs, natures });
     }
 
     // Encadrement (Chefs de Rayon & Assistantes) : un groupe par département, après les rayons
@@ -243,24 +257,30 @@ export default function Rapports() {
       const depParPlan = new Map(encPlans.map(p => [p.id, p.departement_id]));
       const encLignes = await lireParLots(encPlans.map(p => p.id), (lot, d, f) =>
         supabase.from('planning_encadrement_lignes').select('id, planning_id, collaborateur_id, poste')
-          .in('planning_id', lot).eq('jour', date).in('poste', [...PERIODES]).order('id').range(d, f));
+          .in('planning_id', lot).eq('jour', date).order('id').range(d, f));
       const encCols = await chargerCollaborateursEncadrement(deps.map(d => d.id));
       const encColParId = new Map(encCols.map(c => [c.id, c]));
 
       const parDep = new Map<string, RayonLigne['collaborateurs']>();
+      const naturesParDep = new Map<string, Record<Poste, number>>();
       for (const l of encLignes) {
         const depId = depParPlan.get(l.planning_id);
         const col = encColParId.get(l.collaborateur_id);
         if (!depId || !col) continue;
+        let nat = naturesParDep.get(depId);
+        if (!nat) { nat = naturesVides(); naturesParDep.set(depId, nat); }
+        if (estPoste(l.poste)) nat[l.poste]++;
+        if (!estPeriode(l.poste)) continue;
         let liste = parDep.get(depId);
         if (!liste) { liste = []; parDep.set(depId, liste); }
-        liste.push({ nom: col.nom, prenom: col.prenom, poste: l.poste as Poste });
+        liste.push({ nom: col.nom, prenom: col.prenom, poste: l.poste });
       }
       for (const dep of deps) {
-        const cs = parDep.get(dep.id);
-        if (!cs?.length) continue;
+        const natures = naturesParDep.get(dep.id);
+        if (!natures) continue;
+        const cs = parDep.get(dep.id) ?? [];
         cs.sort((a, b) => ORDRE_POSTE[a.poste] - ORDRE_POSTE[b.poste] || a.nom.localeCompare(b.nom));
-        result.push({ rayonNom: ENCADREMENT, depNom: dep.nom, collaborateurs: cs });
+        result.push({ rayonNom: ENCADREMENT, depNom: dep.nom, collaborateurs: cs, natures });
       }
     }
     if (estCourant()) setJournalierData(result);
@@ -306,6 +326,9 @@ export default function Rapports() {
           prenom: c.prenom,
           postes: jours.map(j => (planId ? posteParCase.get(`${planId}|${c.id}|${formatDate(j)}`) : undefined) ?? 'R'),
         })),
+        natures: compterNatures(
+          planId ? cs.flatMap(c => jours.flatMap(j => posteParCase.get(`${planId}|${c.id}|${formatDate(j)}`) ?? [])) : [],
+        ),
       });
     }
 
@@ -334,6 +357,9 @@ export default function Rapports() {
             prenom: c.prenom,
             postes: jours.map(j => (planId ? posteEnc.get(`${planId}|${c.id}|${formatDate(j)}`) : undefined) ?? 'R'),
           })),
+          natures: compterNatures(
+            planId ? cs.flatMap(c => jours.flatMap(j => posteEnc.get(`${planId}|${c.id}|${formatDate(j)}`) ?? [])) : [],
+          ),
         });
       }
     }
@@ -398,6 +424,7 @@ export default function Rapports() {
         absences,
         total: postes.length,
         parPeriode,
+        natures: compterNatures(postes),
       };
     };
 
@@ -440,7 +467,7 @@ export default function Rapports() {
     y += 8;
 
     y = dessinerGraphiquesPDF(doc, statsJour, {
-      x: margin, y, largeur: pageW - margin * 2, pageH: 297, unite: 'collaborateurs', periodes,
+      x: margin, y, largeur: pageW - margin * 2, pageH: 297, unite: 'collaborateurs', periodes, natures: naturesJour,
       nouvellePage: () => { doc.addPage(); return 20; },
     });
 
@@ -480,7 +507,7 @@ export default function Rapports() {
     const colW = (pageW - margin * 2 - nameColW) / 7;
     let firstPage = true;
 
-    if (statsSemaine.total > 0) {
+    if (statsSemaine.total > 0 || naturesSemaine.total > 0) {
       dessinerEntete(doc, {
         pageW, margin,
         titre: 'RAPPORT HEBDOMADAIRE — STATISTIQUES', titreSize: 12,
@@ -488,7 +515,7 @@ export default function Rapports() {
         filtres: mentions,
       });
       dessinerGraphiquesPDF(doc, statsSemaine, {
-        x: margin, y: 28, largeur: pageW - margin * 2, pageH: 210, unite: 'jours-collaborateur', periodes,
+        x: margin, y: 28, largeur: pageW - margin * 2, pageH: 210, unite: 'jours-collaborateur', periodes, natures: naturesSemaine,
         nouvellePage: () => { doc.addPage(); return 20; },
       });
       firstPage = false;
@@ -585,7 +612,7 @@ export default function Rapports() {
     });
 
     let y = dessinerGraphiquesPDF(doc, statsMois, {
-      x: margin, y: 28, largeur: pageW - margin * 2, pageH: 297, unite: 'jours-collaborateur', periodes,
+      x: margin, y: 28, largeur: pageW - margin * 2, pageH: 297, unite: 'jours-collaborateur', periodes, natures: naturesMois,
       nouvellePage: () => { doc.addPage(); return 20; },
     });
     if (y > 255) { doc.addPage(); y = 20; }
@@ -630,7 +657,8 @@ export default function Rapports() {
   ] as const;
 
   /** Bloc de statistiques (repliable) placé au-dessus de la liste ; suit les filtres actifs. */
-  function renderStats(stats: StatsPeriodes, unite: string) {
+  function renderStats(stats: StatsPeriodes, natures: StatsNatures, unite: string) {
+    if (stats.total === 0 && natures.total === 0) return null;
     return (
       <div className="space-y-3">
         <button
@@ -639,13 +667,18 @@ export default function Rapports() {
           aria-expanded={showStats}
           className="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-blue-600 transition"
         >
-          <BarChart3 className="w-4 h-4" /> Statistiques par période
+          <BarChart3 className="w-4 h-4" /> Statistiques
           {showStats ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </button>
         {showStats && (
-          <Suspense fallback={<div className="flex justify-center py-10"><Loader2 className="w-5 h-5 text-blue-500 animate-spin" /></div>}>
-            <RapportGraphiques stats={stats} periodes={periodes} unite={unite} />
-          </Suspense>
+          <>
+            {(stats.total > 0 || periodes.length > 0) && (
+              <Suspense fallback={<div className="flex justify-center py-10"><Loader2 className="w-5 h-5 text-blue-500 animate-spin" /></div>}>
+                <RapportGraphiques stats={stats} periodes={periodes} unite={unite} />
+              </Suspense>
+            )}
+            <RapportNatures stats={natures} unite={unite} />
+          </>
         )}
       </div>
     );
@@ -726,15 +759,16 @@ export default function Rapports() {
       ) : (
         <>
           {activeTab === 'journalier' && (
-            journalierFiltre.length === 0 ? (
-              <div className="bg-white rounded-2xl p-10 text-center text-gray-400 text-sm">
-                {journalierData.length > 0
-                  ? 'Aucun collaborateur ne correspond à la période sélectionnée ce jour.'
-                  : 'Aucun collaborateur présent ce jour ou aucun planning sauvegardé.'}
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {renderStats(statsJour, 'collaborateurs')}
+            <div className="space-y-3">
+              {renderStats(statsJour, naturesJour, 'collaborateurs')}
+              {journalierFiltre.length === 0 ? (
+                <div className="bg-white rounded-2xl p-10 text-center text-gray-400 text-sm">
+                  {periodes.length > 0
+                    ? 'Aucun collaborateur ne correspond à la période sélectionnée ce jour.'
+                    : 'Aucun collaborateur présent ce jour ou aucun planning sauvegardé.'}
+                </div>
+              ) : (
+              <>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-white rounded-2xl p-4 border border-gray-100 text-center">
                     <div className="text-2xl font-bold text-blue-600">{statsJour.total}</div>
@@ -766,20 +800,22 @@ export default function Rapports() {
                     </div>
                   </div>
                 ))}
-              </div>
-            )
+              </>
+              )}
+            </div>
           )}
 
           {activeTab === 'hebdomadaire' && (
-            hebdoFiltre.length === 0 ? (
-              <div className="bg-white rounded-2xl p-10 text-center text-gray-400 text-sm">
-                {hebdoData.length > 0
-                  ? 'Aucun collaborateur ne correspond à la période sélectionnée cette semaine.'
-                  : 'Aucune donnée pour cette semaine.'}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {renderStats(statsSemaine, 'jours-collaborateur')}
+            <div className="space-y-4">
+              {renderStats(statsSemaine, naturesSemaine, 'jours-collaborateur')}
+              {hebdoFiltre.length === 0 ? (
+                <div className="bg-white rounded-2xl p-10 text-center text-gray-400 text-sm">
+                  {hebdoData.length > 0
+                    ? 'Aucun collaborateur ne correspond à la période sélectionnée cette semaine.'
+                    : 'Aucune donnée pour cette semaine.'}
+                </div>
+              ) : (
+              <>
                 {hebdoFiltre.map(rayon => (
                   <div key={rayon.rayonNom} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
                     <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex justify-between">
@@ -825,20 +861,21 @@ export default function Rapports() {
                     </div>
                   </div>
                 ))}
-              </div>
-            )
+              </>
+              )}
+            </div>
           )}
 
           {activeTab === 'mensuel' && (
-            moisFiltre.length === 0 ? (
-              <div className="bg-white rounded-2xl p-10 text-center text-gray-400 text-sm">
-                {moisData.length > 0
-                  ? 'Aucun collaborateur ne correspond à la période sélectionnée ce mois-ci.'
-                  : 'Aucune donnée pour ce mois.'}
-              </div>
-            ) : (
-              <div className="space-y-4">
-              {renderStats(statsMois, 'jours-collaborateur')}
+            <div className="space-y-4">
+              {renderStats(statsMois, naturesMois, 'jours-collaborateur')}
+              {moisFiltre.length === 0 ? (
+                <div className="bg-white rounded-2xl p-10 text-center text-gray-400 text-sm">
+                  {moisData.length > 0
+                    ? 'Aucun collaborateur ne correspond à la période sélectionnée ce mois-ci.'
+                    : 'Aucune donnée pour ce mois.'}
+                </div>
+              ) : (
               <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -882,8 +919,8 @@ export default function Rapports() {
                   </table>
                 </div>
               </div>
-              </div>
-            )
+              )}
+            </div>
           )}
         </>
       )}
